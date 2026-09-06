@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#eef2f8"/>
+  <rect x="54" y="42" width="1492" height="816" rx="28" fill="#fff" stroke="#d9e0ea"/>
+  <rect x="54" y="42" width="1492" height="68" rx="28" fill="#f9fafc"/>
+  <circle cx="90" cy="76" r="8" fill="#d7dce6"/><circle cx="116" cy="76" r="8" fill="#d7dce6"/><circle cx="142" cy="76" r="8" fill="#d7dce6"/>
+  <text x="102" y="174" fill="#18233c" font-family="Arial" font-size="34" font-weight="700">Automation performance</text>
+  <text x="102" y="210" fill="#7d889d" font-family="Arial" font-size="16">Last 30 days</text>
+  <rect x="102" y="255" width="420" height="500" rx="20" fill="#10192d"/>
+  <text x="136" y="305" fill="#91a6ff" font-family="Arial" font-size="14" font-weight="700">TOP WORKFLOW</text>
+  <text x="136" y="352" fill="#fff" font-family="Arial" font-size="30" font-weight="700">Customer inquiry triage</text>
+  <text x="136" y="392" fill="#9eabc1" font-family="Arial" font-size="16">Classify → draft → review</text>
+  <rect x="136" y="446" width="350" height="96" rx="15" fill="#192642"/>
+  <text x="158" y="480" fill="#8d9ab5" font-family="Arial" font-size="14">Runs</text><text x="158" y="522" fill="#fff" font-family="Arial" font-size="34" font-weight="700">1,284</text>
+  <rect x="136" y="562" width="350" height="96" rx="15" fill="#192642"/>
+  <text x="158" y="596" fill="#8d9ab5" font-family="Arial" font-size="14">Success rate</text><text x="158" y="638" fill="#fff" font-family="Arial" font-size="34" font-weight="700">98.7%</text>
+  <text x="136" y="704" fill="#8da1ff" font-family="Arial" font-size="15">12.4 hours saved this week</text>
+  <rect x="566" y="255" width="918" height="500" rx="20" fill="#f8f9fc" stroke="#dde3ed"/>
+  <text x="604" y="304" fill="#25314c" font-family="Arial" font-size="20" font-weight="700">Run volume</text>
+  <g stroke="#dfe5ef"><path d="M610 404h820M610 500h820M610 596h820M610 692h820"/></g>
+  <polyline points="620,650 710,630 800,662 890,570 980,590 1070,498 1160,520 1250,405 1340,430 1430,338" fill="none" stroke="#4c70ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="1250" cy="405" r="13" fill="#fff" stroke="#4c70ff" stroke-width="6"/>
+  <rect x="1165" y="330" width="170" height="62" rx="12" fill="#111a2f"/>
+  <text x="1190" y="356" fill="#8fa4ff" font-family="Arial" font-size="12">THU</text><text x="1190" y="378" fill="#fff" font-family="Arial" font-size="17" font-weight="700">186 runs</text>
+</svg>

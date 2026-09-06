@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#f4f6fb"/>
+  <rect width="244" height="900" fill="#10182c"/>
+  <rect x="34" y="36" width="142" height="28" rx="8" fill="#ffffff" opacity=".96"/>
+  <circle cx="49" cy="50" r="7" fill="#6f8cff"/>
+  <g fill="#71809f" font-family="Arial, sans-serif" font-size="18" font-weight="700">
+    <text x="48" y="133">Overview</text><text x="48" y="185">Customers</text><text x="48" y="237">Automation</text><text x="48" y="289">Reports</text>
+  </g>
+  <rect x="244" y="0" width="1356" height="76" fill="#ffffff"/>
+  <rect x="294" y="30" width="230" height="16" rx="8" fill="#dfe4ed"/>
+  <circle cx="1510" cy="38" r="18" fill="#dce3ff"/>
+  <text x="294" y="146" fill="#18233c" font-family="Arial, sans-serif" font-size="36" font-weight="700">Workspace overview</text>
+  <text x="294" y="184" fill="#7c879d" font-family="Arial, sans-serif" font-size="17">Key activity and operations at a glance</text>
+  <g>
+    <rect x="294" y="232" width="282" height="154" rx="18" fill="#fff" stroke="#dde3ed"/>
+    <text x="322" y="272" fill="#7d89a1" font-family="Arial" font-size="16">Active workflows</text><text x="322" y="334" fill="#17223d" font-family="Arial" font-size="46" font-weight="700">24</text><rect x="322" y="352" width="120" height="9" rx="5" fill="#dce4ff"/><rect x="322" y="352" width="82" height="9" rx="5" fill="#5477ff"/>
+    <rect x="598" y="232" width="282" height="154" rx="18" fill="#fff" stroke="#9fb1ff" stroke-width="2"/>
+    <text x="626" y="272" fill="#63708c" font-family="Arial" font-size="16">Completed today</text><text x="626" y="334" fill="#17223d" font-family="Arial" font-size="46" font-weight="700">186</text><text x="626" y="364" fill="#4d7d5b" font-family="Arial" font-size="15">+18.4%</text>
+    <rect x="902" y="232" width="282" height="154" rx="18" fill="#fff" stroke="#dde3ed"/>
+    <text x="930" y="272" fill="#7d89a1" font-family="Arial" font-size="16">Review queue</text><text x="930" y="334" fill="#17223d" font-family="Arial" font-size="46" font-weight="700">13</text><text x="930" y="364" fill="#8d6c44" font-family="Arial" font-size="15">Needs attention</text>
+    <rect x="1206" y="232" width="282" height="154" rx="18" fill="#fff" stroke="#dde3ed"/>
+    <text x="1234" y="272" fill="#7d89a1" font-family="Arial" font-size="16">Hours saved</text><text x="1234" y="334" fill="#17223d" font-family="Arial" font-size="46" font-weight="700">42.8</text><text x="1234" y="364" fill="#5371d9" font-family="Arial" font-size="15">This week</text>
+  </g>
+  <rect x="294" y="430" width="760" height="380" rx="20" fill="#fff" stroke="#dde3ed"/>
+  <text x="324" y="478" fill="#1d2944" font-family="Arial" font-size="20" font-weight="700">Automation volume</text>
+  <polyline points="336,706 420,664 505,680 590,600 674,626 760,532 846,558 934,490 1014,518" fill="none" stroke="#5477ff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g stroke="#ebeff5"><path d="M334 552h680M334 626h680M334 700h680"/></g>
+  <rect x="1080" y="430" width="408" height="380" rx="20" fill="#fff" stroke="#dde3ed"/>
+  <text x="1110" y="478" fill="#1d2944" font-family="Arial" font-size="20" font-weight="700">Recent runs</text>
+  <g font-family="Arial" font-size="15"><text x="1112" y="540" fill="#26324e">Lead summary</text><text x="1390" y="540" fill="#4e805c">Done</text><text x="1112" y="602" fill="#26324e">Weekly report</text><text x="1390" y="602" fill="#4e805c">Done</text><text x="1112" y="664" fill="#26324e">Refund triage</text><text x="1390" y="664" fill="#a06d3c">Review</text></g>
+  <g stroke="#edf0f5"><path d="M1110 565h348M1110 627h348M1110 689h348"/></g>
+</svg>

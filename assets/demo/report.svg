@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#f3f5fa"/>
+  <rect x="0" y="0" width="1600" height="76" fill="#fff"/>
+  <rect x="40" y="27" width="146" height="22" rx="7" fill="#16223d"/>
+  <rect x="1370" y="23" width="180" height="30" rx="10" fill="#eef2ff"/>
+  <text x="90" y="156" fill="#18233d" font-family="Arial" font-size="34" font-weight="700">Weekly operations report</text>
+  <text x="90" y="194" fill="#7e899e" font-family="Arial" font-size="16">Generated from 6 connected workflows</text>
+  <rect x="90" y="238" width="980" height="558" rx="22" fill="#fff" stroke="#dce2ec"/>
+  <text x="126" y="290" fill="#26324c" font-family="Arial" font-size="21" font-weight="700">Highlights</text>
+  <rect x="126" y="322" width="906" height="112" rx="16" fill="#f5f7ff" stroke="#d7e0ff"/>
+  <circle cx="164" cy="365" r="13" fill="#5577ff"/><path d="M157 365l5 5 9-11" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="194" y="359" fill="#25314b" font-family="Arial" font-size="17" font-weight="700">Customer inquiry backlog decreased 18%</text>
+  <text x="194" y="389" fill="#738098" font-family="Arial" font-size="14">Most refund requests were resolved within the same business day.</text>
+  <text x="126" y="486" fill="#26324c" font-family="Arial" font-size="21" font-weight="700">Key metrics</text>
+  <g>
+    <rect x="126" y="520" width="274" height="128" rx="16" fill="#fafbfc" stroke="#e2e6ee"/><text x="150" y="558" fill="#7c879c" font-family="Arial" font-size="14">Processed</text><text x="150" y="610" fill="#17223b" font-family="Arial" font-size="38" font-weight="700">1,842</text>
+    <rect x="418" y="520" width="274" height="128" rx="16" fill="#fafbfc" stroke="#e2e6ee"/><text x="442" y="558" fill="#7c879c" font-family="Arial" font-size="14">Review rate</text><text x="442" y="610" fill="#17223b" font-family="Arial" font-size="38" font-weight="700">6.2%</text>
+    <rect x="710" y="520" width="274" height="128" rx="16" fill="#fafbfc" stroke="#e2e6ee"/><text x="734" y="558" fill="#7c879c" font-family="Arial" font-size="14">Hours saved</text><text x="734" y="610" fill="#17223b" font-family="Arial" font-size="38" font-weight="700">42.8</text>
+  </g>
+  <text x="126" y="708" fill="#26324c" font-family="Arial" font-size="21" font-weight="700">Next actions</text>
+  <text x="126" y="750" fill="#68758c" font-family="Arial" font-size="15">• Review 13 flagged cases  • Update refund rule  • Share report with operations</text>
+  <rect x="1102" y="238" width="408" height="558" rx="22" fill="#10192d"/>
+  <text x="1138" y="292" fill="#91a5ff" font-family="Arial" font-size="13" font-weight="700">AI SUMMARY</text>
+  <text x="1138" y="344" fill="#fff" font-family="Arial" font-size="25" font-weight="700">What changed?</text>
+  <text x="1138" y="392" fill="#b3bdd0" font-family="Arial" font-size="16">Inquiry volume increased,</text><text x="1138" y="420" fill="#b3bdd0" font-family="Arial" font-size="16">but automated classification</text><text x="1138" y="448" fill="#b3bdd0" font-family="Arial" font-size="16">kept the review queue stable.</text>
+  <rect x="1138" y="506" width="336" height="1" fill="#2c3853"/>
+  <text x="1138" y="554" fill="#fff" font-family="Arial" font-size="18" font-weight="700">Recommended focus</text>
+  <rect x="1138" y="584" width="336" height="74" rx="14" fill="#192642"/><text x="1162" y="618" fill="#9eabc1" font-family="Arial" font-size="14">Review refund exceptions</text><text x="1162" y="642" fill="#fff" font-family="Arial" font-size="15" font-weight="700">13 items pending</text>
+  <rect x="1138" y="676" width="336" height="74" rx="14" fill="#192642"/><text x="1162" y="710" fill="#9eabc1" font-family="Arial" font-size="14">Share with team</text><text x="1162" y="734" fill="#fff" font-family="Arial" font-size="15" font-weight="700">Ready to send</text>
+</svg>

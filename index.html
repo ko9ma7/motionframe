@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0d1324" />
+  <meta name="color-scheme" content="dark light" />
+  <title>MotionFrame — 제품 화면을 움직이는 쇼케이스 영상으로</title>
+  <meta name="description" content="스크린샷이나 공유한 화면을 불러와 줌, 팬, 커서 이동을 연출하고 브라우저에서 바로 WebM 제품 영상을 만드는 GitHub Pages용 정적 웹앱." />
+  <meta name="application-name" content="MotionFrame" />
+  <link rel="canonical" href="__SITE_URL__/" />
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="./favicon-32x32.png" sizes="32x32" type="image/png" />
+  <link rel="icon" href="./favicon-16x16.png" sizes="16x16" type="image/png" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" sizes="180x180" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta property="og:title" content="MotionFrame — 제품 화면을 움직이는 쇼케이스 영상으로" />
+  <meta property="og:description" content="스크린샷과 화면 캡처에 줌·팬·커서 이동을 더해 브라우저에서 바로 WebM 쇼케이스 영상을 만드세요." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="__SITE_URL__/" />
+  <meta property="og:image" content="__SITE_URL__/og-image.png" />
+  <meta property="og:site_name" content="MotionFrame" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="MotionFrame — 제품 화면을 움직이는 쇼케이스 영상으로" />
+  <meta name="twitter:description" content="줌·팬·커서 연출을 편집하고 WebM으로 내보내는 정적 브라우저 앱." />
+  <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
+  <link rel="stylesheet" href="./assets/styles.css" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "MotionFrame",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Web",
+    "description": "스크린샷 또는 사용자 화면 캡처를 줌, 팬, 커서 이동으로 연출해 WebM 쇼케이스 영상을 만드는 브라우저 기반 편집기.",
+    "url": "__SITE_URL__/",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" }
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#studio">편집기로 바로 이동</a>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#top" aria-label="MotionFrame 홈">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span>MotionFrame</span>
+      </a>
+      <nav class="desktop-nav" aria-label="주요 메뉴">
+        <a href="#studio">편집기</a>
+        <a href="#how-it-works">사용 방법</a>
+        <a href="#limits">GitHub Pages 범위</a>
+      </nav>
+      <div class="header-actions">
+        <button class="button button-secondary compact" id="resetProjectButton" type="button">프로젝트 초기화</button>
+        <button class="mobile-menu-button" id="mobileMenuButton" type="button" aria-expanded="false" aria-controls="mobileNavigation" aria-label="메뉴 열기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        </button>
+      </div>
+    </div>
+    <nav class="mobile-nav" id="mobileNavigation" aria-label="모바일 메뉴" hidden>
+      <a href="#studio">편집기</a>
+      <a href="#how-it-works">사용 방법</a>
+      <a href="#limits">GitHub Pages 범위</a>
+      <button class="button button-secondary" id="mobileResetProjectButton" type="button">프로젝트 초기화</button>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="hero-label">BROWSER-ONLY SHOWCASE VIDEO EDITOR</p>
+        <h1 id="hero-title">제품 화면을<br />움직이는 쇼케이스 영상으로.</h1>
+        <p class="hero-description">스크린샷이나 공유한 브라우저 탭·프로그램 화면을 장면으로 추가하고, 줌·팬·커서 이동을 설정한 뒤 브라우저에서 바로 WebM으로 내보냅니다. 서버 업로드 없이 현재 기기에서 처리합니다.</p>
+        <div class="hero-actions">
+          <button class="button button-primary" id="heroUploadButton" type="button">스크린샷 추가</button>
+          <button class="button button-secondary" id="heroCaptureButton" type="button">화면 한 장 캡처</button>
+        </div>
+        <div class="hero-points" aria-label="핵심 특성">
+          <span>서버 업로드 없음</span>
+          <span>WebM 내보내기</span>
+          <span>GitHub Pages 배포</span>
+        </div>
+      </div>
+      <div class="hero-visual" aria-hidden="true">
+        <div class="mini-browser">
+          <div class="mini-browser-bar"><i></i><i></i><i></i><span>product.app/dashboard</span></div>
+          <div class="mini-stage">
+            <div class="mini-sidebar"></div>
+            <div class="mini-content">
+              <div class="mini-heading"></div>
+              <div class="mini-grid"><b></b><b></b><b></b></div>
+              <div class="mini-table"></div>
+            </div>
+            <div class="mini-cursor"></div>
+            <div class="mini-focus"></div>
+          </div>
+        </div>
+        <div class="hero-caption">카메라는 선택한 지점으로 부드럽게 이동합니다.</div>
+      </div>
+    </section>
+
+    <section class="studio-section" id="studio" aria-labelledby="studio-title">
+      <div class="section-heading studio-heading">
+        <div>
+          <p class="section-kicker">STUDIO</p>
+          <h2 id="studio-title">실제로 편집하고 바로 내보내세요.</h2>
+        </div>
+        <p>데모 장면이 기본으로 들어 있습니다. 직접 이미지를 추가하거나 화면 공유 권한을 허용해 현재 탭·창의 한 장면을 캡처할 수 있습니다.</p>
+      </div>
+
+      <div class="status-banner" id="supportBanner" role="status"></div>
+
+      <div class="editor-shell">
+        <aside class="panel scene-panel" aria-labelledby="scenes-heading">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">SCENES</p>
+              <h3 id="scenes-heading">장면</h3>
+            </div>
+            <span class="count-badge" id="sceneCount">0</span>
+          </div>
+
+          <div class="scene-actions">
+            <button class="button button-primary full" id="uploadButton" type="button">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V4m0 0L6.5 7.5M10 4l3.5 3.5M4 12v2.2A1.8 1.8 0 0 0 5.8 16h8.4a1.8 1.8 0 0 0 1.8-1.8V12" /></svg>
+              이미지 추가
+            </button>
+            <button class="button button-secondary full" id="captureButton" type="button">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h14v9H3zM7 17h6M10 14.5V17" /></svg>
+              화면 한 장 캡처
+            </button>
+            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+          </div>
+
+          <div class="scene-list" id="sceneList" aria-live="polite"></div>
+          <div class="scene-empty" id="sceneEmpty" hidden>
+            <strong>장면이 없습니다.</strong>
+            <p>스크린샷을 추가하거나 화면을 캡처하면 편집을 시작할 수 있습니다.</p>
+          </div>
+        </aside>
+
+        <section class="preview-panel" aria-labelledby="preview-heading">
+          <div class="preview-toolbar">
+            <div>
+              <p class="eyebrow">PREVIEW</p>
+              <h3 id="preview-heading">미리보기</h3>
+            </div>
+            <div class="resolution-switch" role="group" aria-label="출력 해상도">
+              <button class="resolution-button active" data-resolution="1280x720" type="button">720p</button>
+              <button class="resolution-button" data-resolution="1920x1080" type="button">1080p</button>
+            </div>
+          </div>
+
+          <div class="canvas-frame" id="canvasFrame">
+            <canvas id="previewCanvas" width="1280" height="720" aria-label="영상 미리보기 캔버스"></canvas>
+            <div class="canvas-empty" id="canvasEmpty" hidden>
+              <strong>미리볼 장면이 없습니다.</strong>
+              <span>이미지를 추가해 주세요.</span>
+            </div>
+          </div>
+
+          <div class="transport">
+            <button class="icon-button" id="playButton" type="button" aria-label="재생">
+              <svg class="play-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5.2 14.5 10 7 14.8z" /></svg>
+              <svg class="pause-icon" viewBox="0 0 20 20" aria-hidden="true" hidden><path d="M6.5 5h2.4v10H6.5zM11.1 5h2.4v10h-2.4z" /></svg>
+            </button>
+            <span class="timecode" id="currentTime">00:00.0</span>
+            <input class="seek" id="seekInput" type="range" min="0" max="1" step="0.001" value="0" aria-label="재생 위치" />
+            <span class="timecode" id="totalTime">00:00.0</span>
+          </div>
+
+          <div class="timeline" id="timeline" aria-label="장면 타임라인"></div>
+
+          <div class="export-row">
+            <div class="export-status">
+              <div class="progress-track" aria-hidden="true"><span id="exportProgress"></span></div>
+              <span id="exportStatus">준비됨 · 30fps</span>
+            </div>
+            <button class="button button-primary export-button" id="exportButton" type="button">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v8m0 0 3-3m-3 3L7 9M4 13.5v1A1.5 1.5 0 0 0 5.5 16h9a1.5 1.5 0 0 0 1.5-1.5v-1" /></svg>
+              WebM 내보내기
+            </button>
+          </div>
+        </section>
+
+        <aside class="panel inspector-panel" aria-labelledby="inspector-heading">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">MOTION</p>
+              <h3 id="inspector-heading">장면 연출</h3>
+            </div>
+          </div>
+
+          <div id="inspectorForm" class="inspector-form">
+            <label class="field">
+              <span>장면 이름</span>
+              <input id="sceneNameInput" type="text" maxlength="60" autocomplete="off" />
+            </label>
+
+            <div class="field-row two">
+              <label class="field">
+                <span>길이</span>
+                <div class="number-field"><input id="durationInput" type="number" min="1" max="12" step="0.1" /><em>초</em></div>
+              </label>
+              <label class="field">
+                <span>프리셋</span>
+                <select id="presetSelect">
+                  <option value="push-in">중앙 줌인</option>
+                  <option value="pull-out">줌아웃</option>
+                  <option value="left-to-right">왼쪽 → 오른쪽</option>
+                  <option value="right-to-left">오른쪽 → 왼쪽</option>
+                  <option value="top-to-bottom">위 → 아래</option>
+                  <option value="detail">디테일 포커스</option>
+                  <option value="custom">직접 설정</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="control-group">
+              <div class="control-group-title"><span>카메라</span><small>0%는 왼쪽/위, 100%는 오른쪽/아래</small></div>
+              <label class="range-field"><span>시작 줌 <output id="startZoomOutput">100%</output></span><input id="startZoomInput" type="range" min="100" max="180" step="1" /></label>
+              <label class="range-field"><span>끝 줌 <output id="endZoomOutput">125%</output></span><input id="endZoomInput" type="range" min="100" max="180" step="1" /></label>
+              <label class="range-field"><span>끝 X <output id="endXOutput">50%</output></span><input id="endXInput" type="range" min="0" max="100" step="1" /></label>
+              <label class="range-field"><span>끝 Y <output id="endYOutput">50%</output></span><input id="endYInput" type="range" min="0" max="100" step="1" /></label>
+            </div>
+
+            <div class="control-group">
+              <div class="toggle-row">
+                <div><strong>커서 연출</strong><small>대상 지점으로 이동 후 클릭 효과</small></div>
+                <label class="switch"><input id="cursorEnabledInput" type="checkbox" /><span aria-hidden="true"></span></label>
+              </div>
+              <div id="cursorControls">
+                <label class="range-field"><span>커서 X <output id="cursorXOutput">66%</output></span><input id="cursorXInput" type="range" min="0" max="100" step="1" /></label>
+                <label class="range-field"><span>커서 Y <output id="cursorYOutput">48%</output></span><input id="cursorYInput" type="range" min="0" max="100" step="1" /></label>
+              </div>
+            </div>
+
+            <div class="inspector-actions">
+              <button class="button button-secondary full" id="duplicateButton" type="button">장면 복제</button>
+              <button class="button button-danger full" id="deleteButton" type="button">장면 삭제</button>
+            </div>
+          </div>
+
+          <div class="inspector-empty" id="inspectorEmpty" hidden>
+            <strong>장면을 선택해 주세요.</strong>
+            <p>선택한 장면의 줌, 이동, 길이, 커서 위치를 여기에서 조절합니다.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="how-section" id="how-it-works" aria-labelledby="how-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">WORKFLOW</p>
+          <h2 id="how-title">세 단계로 쇼케이스를 만듭니다.</h2>
+        </div>
+      </div>
+      <div class="workflow-grid">
+        <article><span>01</span><h3>화면을 장면으로 추가</h3><p>PNG·JPG·WebP를 여러 장 올리거나 브라우저의 화면 공유 기능으로 탭·창의 현재 프레임을 캡처합니다.</p></article>
+        <article><span>02</span><h3>카메라와 커서 연출</h3><p>장면마다 줌과 포커스 지점을 정하고 커서가 대상 위치로 이동해 클릭하는 흐름을 미리봅니다.</p></article>
+        <article><span>03</span><h3>WebM으로 렌더링</h3><p>Canvas와 MediaRecorder를 사용해 모든 장면을 순서대로 재생하고 WebM 파일로 기기에 저장합니다.</p></article>
+      </div>
+    </section>
+
+    <section class="limits-section" id="limits" aria-labelledby="limits-title">
+      <div class="limits-card">
+        <div>
+          <p class="section-kicker">GITHUB PAGES SCOPE</p>
+          <h2 id="limits-title">정적 웹앱에서 가능한 범위를 명확히 했습니다.</h2>
+        </div>
+        <div class="limits-copy">
+          <p><strong>가능:</strong> 이미지 업로드, 사용자 승인 기반 화면 캡처, 장면 편집, 줌·팬·커서 연출, 로컬 프로젝트 저장, WebM 렌더링.</p>
+          <p><strong>불가능:</strong> URL만 입력해 다른 사이트를 몰래 열고 자동 클릭하거나 임의 사이트 DOM을 직접 조작하는 기능. 브라우저의 동일 출처 정책과 화면 캡처 권한 때문에 GitHub Pages만으로는 할 수 없습니다.</p>
+          <p>나중에 “URL 입력 → 자동 브라우징 → 완성 영상”까지 확장할 때만 Playwright/Chromium 렌더링 워커 같은 별도 백엔드를 붙이면 됩니다.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div><strong>MotionFrame</strong><span>Browser-only showcase video editor</span></div>
+      <nav aria-label="푸터 메뉴"><a href="#studio">편집기</a><a href="#how-it-works">사용 방법</a><a href="#top">맨 위로</a></nav>
+    </div>
+  </footer>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="true"></div>
+
+  <dialog class="confirm-dialog" id="resetDialog">
+    <form method="dialog">
+      <h2>프로젝트를 초기화할까요?</h2>
+      <p>업로드한 이미지와 편집 설정이 이 브라우저의 저장소에서 삭제되고 기본 데모 프로젝트로 돌아갑니다.</p>
+      <div class="dialog-actions">
+        <button class="button button-secondary" value="cancel">취소</button>
+        <button class="button button-danger" id="confirmResetButton" value="confirm">초기화</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./assets/app.js"></script>
+</body>
+</html>
