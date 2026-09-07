@@ -1,365 +1,62 @@
-const CTA_RE = /(start|try|free|demo|contact|book|sign\s?up|get started|learn more|시작|무료|체험|데모|문의|가입|신청|사용해|살펴보기|내보내기|분석|캡처|만들기)/i;
-const FEATURE_RE = /(feature|product|solution|workflow|automation|how it works|use case|기능|제품|솔루션|워크플로|자동화|사용법|활용|template|editor|director|capture|템플릿|편집기|연출)/i;
-const SKIP_RE = /(login|log in|sign in|privacy|terms|policy|cookie|blog|docs|documentation|support|help|career|채용|개인정보|약관|로그인|블로그|문서|고객센터)/i;
-const ACTIONS = new Set(['establish','focus','track','click','anchor','navigate','resolve']);
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-const uid = (prefix='flow') => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
+const CTA_RE=/(start|try|free|demo|contact|book|sign\s?up|get started|learn more|시작|무료|체험|데모|문의|가입|신청|사용해|살펴보기|내보내기|분석|캡처|만들기|보기)/i;
+const FEATURE_RE=/(feature|product|solution|workflow|automation|how it works|use case|pricing|template|editor|director|capture|기능|제품|솔루션|워크플로|자동화|사용법|활용|가격|요금|템플릿|편집기|연출|캡처)/i;
+const SKIP_RE=/(login|log in|sign in|privacy|terms|policy|cookie|blog|docs|documentation|support|help|career|채용|개인정보|약관|로그인|블로그|문서|고객센터|copyright|github)/i;
+const ACTIONS=new Set(['establish','focus','track','click','anchor','navigate','resolve']);
+const clamp=(v,min,max)=>Math.min(max,Math.max(min,v));
+const uid=(p='flow')=>`${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
+const DEFAULT_SCOPE={pageLimit:3,elementLimit:10,grouping:'screen',roles:['headings','media','navigation','actions']};
 
-function clean(value, max = 92) {
-  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
-}
-
-function safeUrl(value, base) {
-  try { return new URL(value, base).toString(); } catch { return ''; }
-}
-
-function samePage(a, b) {
-  try {
-    const A = new URL(a); const B = new URL(b);
-    const trim = (path) => (path.replace(/\/+$/, '') || '/');
-    return A.origin === B.origin && trim(A.pathname) === trim(B.pathname) && A.search === B.search;
-  } catch { return false; }
-}
-
-function sameDocumentAnchor(element, pageUrl) {
-  if (!element?.href || !Number.isFinite(element.targetY)) return false;
-  try {
-    const href = new URL(element.href); const page = new URL(pageUrl);
-    const trim = (path) => (path.replace(/\/+$/, '') || '/');
-    return href.origin === page.origin && trim(href.pathname) === trim(page.pathname) && Boolean(href.hash);
-  } catch { return false; }
-}
-
-function analysisDimensions(analysis = {}) {
-  const viewportWidth = Number(analysis.viewportWidth || analysis.documentWidth || 1440);
-  const viewportHeight = Number(analysis.viewportHeight || 900);
-  const documentWidth = Number(analysis.documentWidth || viewportWidth || 1440);
-  const documentHeight = Number(analysis.documentHeight || viewportHeight || 900);
-  return { viewportWidth, viewportHeight, documentWidth, documentHeight, captureMode: analysis.captureMode || 'viewport' };
-}
-
-function elementPoint(element, analysis) {
-  const dims = analysisDimensions(analysis);
-  const full = dims.captureMode === 'full';
-  const width = full ? dims.documentWidth : dims.viewportWidth;
-  const height = full ? dims.documentHeight : dims.viewportHeight;
-  return {
-    x: clamp((Number(element.x || width / 2) / Math.max(1, width)) * 100, 1, 99),
-    y: clamp((Number(element.y || height / 2) / Math.max(1, height)) * 100, 1, 99),
-    widthPct: clamp((Number(element.w || element.width || 0) / Math.max(1, width)) * 100, 0, 100),
-    heightPct: clamp((Number(element.h || element.height || 0) / Math.max(1, height)) * 100, 0, 100)
-  };
-}
-
-function roleForElement(element) {
-  const tag = String(element.tag || '').toLowerCase();
-  if (element.brand) return 'brand';
-  if (tag === 'img' || tag === 'video' || element.role === 'media') return 'media';
-  const text = clean(element.text);
-  if (tag === 'h1') return 'hero';
-  if (tag === 'h2' || tag === 'h3') return 'section';
-  if (tag === 'button' || element.role === 'button') return CTA_RE.test(text) ? 'cta' : 'control';
-  if (tag === 'a') {
-    if (element.inNav) return 'nav';
-    return CTA_RE.test(text) ? 'cta' : 'link';
-  }
-  return 'content';
-}
-
-function normalizeElements(analysis) {
-  const source = Array.isArray(analysis?.elements) ? analysis.elements : [];
-  const dims = analysisDimensions(analysis);
-  return source
-    .map((element, index) => {
-      const text = clean(element.text);
-      if (!text) return null;
-      const point = elementPoint(element, analysis);
-      return {
-        id: element.id || `el-${index}`,
-        tag: String(element.tag || '').toLowerCase(),
-        role: roleForElement(element),
-        text,
-        href: safeUrl(element.href, analysis.url),
-        x: point.x,
-        y: point.y,
-        widthPct: point.widthPct,
-        heightPct: point.heightPct,
-        top: Number(element.top || element.y || 0),
-        width: Number(element.w || element.width || 0),
-        height: Number(element.h || element.height || 0),
-        targetX: Number(element.targetX || 0) ? clamp((Number(element.targetX) / Math.max(1, dims.captureMode === 'full' ? dims.documentWidth : dims.viewportWidth)) * 100, 1, 99) : null,
-        targetY: Number(element.targetY || 0) ? clamp((Number(element.targetY) / Math.max(1, dims.captureMode === 'full' ? dims.documentHeight : dims.viewportHeight)) * 100, 1, 99) : null,
-        inNav: Boolean(element.inNav),
-        brand: Boolean(element.brand)
-      };
-    })
-    .filter(Boolean)
-    .filter((element) => dims.captureMode === 'full' || (element.top < dims.viewportHeight && element.top + element.height > 0))
-    .filter((element, index, list) => list.findIndex((item) => item.text === element.text && item.href === element.href && item.role === element.role) === index);
-}
-
-function scoreLink(element, pageUrl) {
-  if (!element.href || SKIP_RE.test(element.text)) return -100;
-  let score = 0;
-  try {
-    const page = new URL(pageUrl); const href = new URL(element.href);
-    if (href.origin === page.origin) score += 8; else score -= 8;
-    if (href.pathname !== page.pathname) score += 4;
-    if (href.hash) score -= 1;
-  } catch { return -100; }
-  if (element.inNav) score += 5;
-  if (FEATURE_RE.test(element.text)) score += 7;
-  if (CTA_RE.test(element.text)) score += 5;
-  if (element.text.length <= 24) score += 2;
-  return score;
-}
-
-export function suggestInternalLinks(analysis, limit = 2) {
-  const elements = normalizeElements(analysis);
-  const current = analysis?.url || '';
-  return elements
-    .filter((element) => ['nav', 'link', 'cta'].includes(element.role) && element.href && !samePage(element.href, current))
-    .map((element) => ({ ...element, score: scoreLink(element, current) }))
-    .filter((element) => element.score > 0)
-    .sort((a, b) => b.score - a.score || a.top - b.top)
-    .filter((element, index, list) => list.findIndex((item) => samePage(item.href, element.href)) === index)
-    .slice(0, limit);
-}
-
-function pickBrand(elements) { return elements.find((element) => element.role === 'brand' && element.y <= 14) || null; }
-function pickHero(elements) { return elements.find((element) => element.role === 'hero') || elements.find((element) => element.role === 'section') || null; }
-function pickMedia(elements, hero) {
-  const heroY = hero?.y ?? 0;
-  return elements
-    .filter((element) => element.role === 'media')
-    .filter((element) => element.widthPct >= 18 && element.heightPct >= 2)
-    .filter((element) => element.y >= Math.max(0, heroY - 8))
-    .map((element) => ({ element, score: element.widthPct * Math.max(2, element.heightPct) - Math.max(0, element.y - 72) * 1.5 }))
-    .sort((a, b) => b.score - a.score)[0]?.element || null;
-}
-function pickSections(elements, count, hero) {
-  const heroY = hero?.y ?? -100;
-  const sections = elements
-    .filter((element) => element.role === 'section')
-    .filter((element) => Math.abs(element.y - heroY) >= 7)
-    .sort((a, b) => a.top - b.top)
-    .filter((element, index, list) => list.findIndex((item) => item.text === element.text) === index);
-  if (sections.length <= count) return sections;
-  if (count <= 1) return [sections[Math.min(sections.length - 1, Math.floor(sections.length * .35))]];
-  const picked = [];
-  for (let i = 0; i < count; i += 1) {
-    const targetIndex = Math.round((sections.length - 1) * (i / Math.max(1, count - 1)));
-    const candidate = sections[targetIndex];
-    if (candidate && !picked.includes(candidate)) picked.push(candidate);
-  }
-  return picked.slice(0, count);
-}
-function matchLinkToPage(elements, targetUrl) {
-  if (!targetUrl) return null;
-  const exact = elements.find((element) => element.href && samePage(element.href, targetUrl));
-  if (exact) return exact;
-  try {
-    const target = new URL(targetUrl);
-    const ranked = elements.filter((element) => element.href).map((element) => {
-      try {
-        const href = new URL(element.href);
-        let score = href.origin === target.origin ? 4 : -10;
-        if (href.pathname === target.pathname) score += 9;
-        const slug = target.pathname.split('/').filter(Boolean).pop()?.replace(/[-_]/g, ' ') || '';
-        if (slug && element.text.toLowerCase().includes(slug.toLowerCase())) score += 5;
-        return { element, score };
-      } catch { return { element, score: -100 }; }
-    }).sort((a,b)=>b.score-a.score);
-    return ranked[0]?.score >= 8 ? ranked[0].element : null;
-  } catch { return null; }
-}
-function pickCta(elements) {
-  return elements
-    .filter((element) => ['cta','control','link'].includes(element.role))
-    .map((element) => ({ element, score:(CTA_RE.test(element.text)?8:0)+(element.href?2:0)+(element.y<72?2:0) }))
-    .sort((a,b)=>b.score-a.score)[0]?.element || null;
-}
-function defaultElementBehavior(element, transitionElement, isLast, pageUrl='') {
-  if (transitionElement?.id === element.id) return 'navigate';
-  if (sameDocumentAnchor(element, pageUrl) && element.inNav) return 'anchor';
-  if (isLast && element.role === 'cta') return 'click';
-  return 'skip';
-}
-
-function overviewPoint(page) {
-  if (page.captureMode === 'full' && page.documentHeight > page.viewportHeight * 1.15) {
-    return { x:50, y:clamp((page.viewportHeight * .48 / Math.max(1,page.documentHeight))*100,3,35) };
-  }
-  return { x:50, y:50 };
-}
-
-function recommendedZoom(element, page, action='focus') {
-  const baseTarget = { brand:116, hero:126, media:132, section:136, nav:142, cta:148, link:140, control:144 }[element.role] || 132;
-  const target = action === 'track' ? baseTarget + 6 : action === 'click' || action === 'navigate' ? baseTarget + 4 : baseTarget;
-  const roleMax = { brand:126, hero:138, media:144, section:148, nav:152, cta:158, link:152, control:154 }[element.role] || 148;
-  const vw = Math.max(1,page.viewportWidth||page.documentWidth||1440), vh=Math.max(1,page.viewportHeight||900);
-  const dw=Math.max(1,page.documentWidth||vw), dh=Math.max(1,page.documentHeight||vh), ratio=vw/vh;
-  const baseW=Math.min(dw,dh*ratio), baseH=Math.min(dh,dw/ratio);
-  const ew=Math.max(1,element.width||(element.widthPct/100)*dw||dw*.2), eh=Math.max(1,element.height||(element.heightPct/100)*dh||vh*.08);
-  const maxByWidth=(baseW/(ew*1.35))*100, maxByHeight=(baseH/(eh*1.85))*100;
-  return clamp(Math.min(target,maxByWidth,maxByHeight,roleMax),106,roleMax);
-}
-
-function framingAnchor(element) {
-  let anchorX=.5;
-  if (element.x<34) anchorX=element.role==='hero'||element.role==='section'? .35:.32;
-  else if (element.x>66) anchorX=element.role==='hero'||element.role==='section'? .65:.68;
-  let anchorY=.5;
-  if (element.role==='nav'||element.y<14) anchorY=.24;
-  else if (element.role==='hero') anchorY=.42;
-  else if (element.role==='media') anchorY=.52;
-  else if (element.role==='cta'&&element.y>68) anchorY=.62;
-  else if (element.y<32) anchorY=.40;
-  else if (element.y>76) anchorY=.60;
-  return {anchorX,anchorY};
-}
-
-function defaultActionForElement(element, previousElement) {
-  if (!element) return 'focus';
-  if (element.role === 'media') return 'focus';
-  if (previousElement && Math.abs(element.y - previousElement.y) > 22) return 'track';
-  return 'focus';
-}
-
-function makeFlowStep(pageIndex, action, element, extra={}) {
-  return {
-    id: uid('beat'),
-    pageIndex,
-    action,
-    elementId: element?.id || null,
-    role: element?.role || (action==='establish'?'overview':action==='resolve'?'outro':'content'),
-    label: clean(extra.label || element?.text || ''),
-    targetPageIndex: Number.isInteger(extra.targetPageIndex) ? extra.targetPageIndex : null,
-    impact: extra.impact || ({establish:'reveal',focus:'punch',track:'track',click:'click',navigate:'navigate',resolve:'resolve'}[action] || 'punch'),
-    enabled: extra.enabled !== false,
-    duration: Number(extra.duration || 0) || null,
-    targetX: Number.isFinite(Number(extra.targetX)) ? Number(extra.targetX) : (Number.isFinite(Number(element?.targetX)) ? Number(element.targetX) : null),
-    targetY: Number.isFinite(Number(extra.targetY)) ? Number(extra.targetY) : (Number.isFinite(Number(element?.targetY)) ? Number(element.targetY) : null)
-  };
-}
-
-function buildDefaultFlow(pages, detail='standard') {
-  const flow=[];
-  pages.forEach((page,pageIndex)=>{
-    const active = page.elements.filter((element)=>element.behavior!=='skip');
-    const navigate = active.find((element)=>element.behavior==='navigate');
-    const pageHero = active.find((element)=>element.role==='hero');
-    const pageMedia = active.find((element)=>element.role==='media');
-    const pageSections = active.filter((element)=>element.role==='section');
-    const anchorLinks = active.filter((element)=>element.behavior==='anchor').slice(0, detail === 'detailed' ? 6 : detail === 'compact' ? 2 : 4);
-    const pageBrand = active.find((element)=>element.role==='brand');
-    const pageCta = active.find((element)=>element.behavior==='click' || element.role==='cta');
-
-    flow.push(makeFlowStep(pageIndex,'establish',null,{label:`${page.title} · 전체`,impact:pageIndex===0?'reveal':'navigate'}));
-    let previous=null;
-    const ordered=[pageBrand,pageHero,pageMedia,...(anchorLinks.length ? pageSections.slice(0,1) : pageSections)].filter(Boolean).filter((el,i,list)=>list.findIndex(x=>x.id===el.id)===i);
-    ordered.forEach((element,index)=>{
-      if (element.id===navigate?.id || element.id===pageCta?.id) return;
-      const action = defaultActionForElement(element,previous);
-      const impact = element.role==='hero' ? 'punch' : element.role==='media' ? 'sweep' : action==='track' ? 'track' : (index%2?'sweep':'punch');
-      flow.push(makeFlowStep(pageIndex,action,element,{impact}));
-      previous=element;
-    });
-    anchorLinks.forEach((element)=>flow.push(makeFlowStep(pageIndex,'anchor',element,{impact:'click',targetX:element.targetX,targetY:element.targetY})));
-    if (navigate) flow.push(makeFlowStep(pageIndex,'navigate',navigate,{targetPageIndex:navigate.targetPageIndex,impact:'navigate'}));
-    if (pageIndex===pages.length-1 && pageCta && pageCta.id!==navigate?.id && !anchorLinks.some((item)=>item.id===pageCta.id)) flow.push(makeFlowStep(pageIndex,'click',pageCta,{impact:'click'}));
-  });
-  if (pages.length) flow.push(makeFlowStep(pages.length-1,'resolve',null,{label:`${pages.at(-1).title} · 마무리`,impact:'resolve'}));
-  return flow;
-}
-
-export function createDirectorPlan(pages, options={}) {
-  const detail=options.detail||'standard';
-  const sectionCount=detail==='compact'?1:detail==='detailed'?3:2;
-  const normalizedPages=pages.map((page,pageIndex)=>{
-    const analysis=page.sourceAnalysis||{url:page.sourceUrl||'',title:page.name||`페이지 ${pageIndex+1}`,elements:[]};
-    const dims=analysisDimensions(analysis), elements=normalizeElements(analysis), nextPage=pages[pageIndex+1];
-    const transitionElement=matchLinkToPage(elements,nextPage?.sourceUrl), brand=detail==='detailed'&&pageIndex===0?pickBrand(elements):null;
-    const hero=pickHero(elements), media=detail==='compact'?null:pickMedia(elements,hero), sectionBudget=Math.max(0,sectionCount-(media?1:0));
-    const sections=pickSections(elements,sectionBudget,hero).filter((item)=>item.id!==transitionElement?.id), cta=pickCta(elements);
-    const selected=[brand,hero,media,...sections,transitionElement,pageIndex===pages.length-1?cta:null].filter(Boolean);
-    const unique=selected.filter((element,index,list)=>list.findIndex((item)=>item.id===element.id)===index);
-    const candidatePool=[...unique,...elements.filter((element)=>['brand','hero','media','section','nav','cta','link','control'].includes(element.role))]
-      .filter((element,index,list)=>list.findIndex((item)=>item.id===element.id)===index).slice(0,30);
-    const candidates=candidatePool.map((element)=>({...element,behavior:defaultElementBehavior(element,transitionElement,pageIndex===pages.length-1,analysis.url || page.sourceUrl || ''),targetPageIndex:transitionElement?.id===element.id?pageIndex+1:null}));
-    unique.forEach((chosen)=>{const candidate=candidates.find((item)=>item.id===chosen.id);if(candidate&&candidate.behavior==='skip')candidate.behavior=chosen.role==='cta'&&pageIndex===pages.length-1?'click':'focus';});
-    return {id:`page-${pageIndex}-${Date.now().toString(36)}`,pageIndex,title:clean(analysis.title||page.name||`페이지 ${pageIndex+1}`),url:page.sourceUrl||analysis.url||'',sourceSceneId:page.id,elements:candidates,detectedCount:elements.length,...dims};
-  });
-  const plan={version:3,detail,pages:normalizedPages,flow:[]};
-  plan.flow=buildDefaultFlow(normalizedPages,detail);
-  return plan;
-}
-
-export function setElementBehavior(plan,pageIndex,elementId,behavior,targetPageIndex=null){
-  const page=plan?.pages?.[pageIndex], element=page?.elements?.find((item)=>item.id===elementId); if(!element)return plan;
-  if(behavior==='navigate')page.elements.forEach((item)=>{if(item.id!==elementId&&item.behavior==='navigate'){item.behavior=item.href?'click':'focus';item.targetPageIndex=null;}});
-  element.behavior=behavior;element.targetPageIndex=behavior==='navigate'?Number(targetPageIndex??pageIndex+1):null;
-  plan.flow=buildDefaultFlow(plan.pages,plan.detail||'standard');
-  return plan;
-}
-
-export function updateFlowStep(plan,stepId,patch={}){
-  const step=plan?.flow?.find((item)=>item.id===stepId); if(!step)return plan;
-  if(patch.action&&ACTIONS.has(patch.action))step.action=patch.action;
-  if('targetPageIndex'in patch)step.targetPageIndex=patch.targetPageIndex===null?null:Number(patch.targetPageIndex);
-  if('impact'in patch)step.impact=String(patch.impact||step.impact);
-  if('enabled'in patch)step.enabled=Boolean(patch.enabled);
-  if('duration'in patch)step.duration=patch.duration?Number(patch.duration):null;
-  return plan;
-}
-
-export function moveFlowStep(plan,stepId,delta){
-  const flow=plan?.flow||[], index=flow.findIndex((item)=>item.id===stepId), next=index+Number(delta||0);
-  if(index<0||next<0||next>=flow.length)return plan; const [item]=flow.splice(index,1); flow.splice(next,0,item); return plan;
-}
-
-export function removeFlowStep(plan,stepId){ if(plan?.flow)plan.flow=plan.flow.filter((item)=>item.id!==stepId); return plan; }
-
-export function addElementToFlow(plan,pageIndex,elementId,afterStepId=null){
-  const page=plan?.pages?.[pageIndex], element=page?.elements?.find((item)=>item.id===elementId); if(!page||!element)return plan;
-  const target=plan.pages.findIndex((candidate,index)=>index!==pageIndex&&element.href&&samePage(candidate.url,element.href));
-  const isAnchor=sameDocumentAnchor(element,page.url);
-  const action=target>=0?'navigate':isAnchor?'anchor':(['cta','control','link','nav'].includes(element.role)?'click':'focus');
-  const step=makeFlowStep(pageIndex,action,element,{targetPageIndex:target>=0?target:null,targetX:element.targetX,targetY:element.targetY,impact:action==='navigate'?'navigate':action==='anchor'||action==='click'?'click':element.role==='media'?'sweep':'punch'});
-  let index=afterStepId?plan.flow.findIndex((item)=>item.id===afterStepId):-1;
-  if(index<0){index=plan.flow.map((item)=>item.pageIndex).lastIndexOf(pageIndex);}
-  plan.flow.splice(Math.max(0,index+1),0,step); return plan;
-}
-
-export function planSummary(plan){
-  const pages=plan?.pages||[], flow=(plan?.flow||[]).filter((step)=>step.enabled!==false);
-  const navigations=flow.filter((step)=>step.action==='navigate').length;
-  return {pages:pages.length,beats:flow.length,navigations};
-}
-
-export function buildBeatSpecs(plan){
-  const pages=plan?.pages||[];
-  const flow=(plan?.flow?.length?plan.flow:buildDefaultFlow(pages,plan?.detail||'standard')).filter((step)=>step.enabled!==false);
-  const out=[];
-  flow.forEach((step)=>{
-    const page=pages[step.pageIndex]; if(!page)return;
-    const element=step.elementId?page.elements.find((item)=>item.id===step.elementId):null;
-    const overview=overviewPoint(page), action=ACTIONS.has(step.action)?step.action:'focus';
-    if(action==='establish'||action==='resolve'){
-      out.push({pageIndex:step.pageIndex,role:action==='resolve'?'outro':'overview',intent:action,label:step.label||`${page.title} · ${action==='resolve'?'마무리':'전체'}`,x:overview.x,y:overview.y,zoom:100,anchorX:.5,anchorY:.5,behavior:'focus',impact:step.impact||action,duration:step.duration,flowStepId:step.id});
-      return;
-    }
-    if(!element)return;
-    const anchor=framingAnchor(element), behavior=action==='navigate'?'navigate':action==='click'||action==='anchor'?'click':'focus';
-    const common={pageIndex:step.pageIndex,role:element.role,label:element.text,x:element.x,y:element.y,zoom:recommendedZoom(element,page,action),anchorX:anchor.anchorX,anchorY:anchor.anchorY,href:element.href,targetPageIndex:step.targetPageIndex,flowStepId:step.id,widthPct:element.widthPct,heightPct:element.heightPct};
-    if(action==='anchor'){
-      out.push({...common,intent:'click',behavior:'click',impact:'click',label:`클릭 · ${element.text}`,flowStepId:`${step.id}:click`});
-      const targetY=Number.isFinite(Number(step.targetY))?Number(step.targetY):element.targetY;
-      const targetX=Number.isFinite(Number(step.targetX))?Number(step.targetX):(element.targetX||50);
-      if(Number.isFinite(targetY))out.push({pageIndex:step.pageIndex,role:'section',intent:'track',label:`${element.text} 영역으로 이동`,x:targetX||50,y:targetY,zoom:132,anchorX:.5,anchorY:.48,behavior:'focus',impact:'track',flowStepId:`${step.id}:target`});
-      return;
-    }
-    out.push({...common,intent:action,behavior,impact:step.impact||action,duration:step.duration});
-  });
-  return out;
-}
+function clean(v,max=92){return String(v||'').replace(/\s+/g,' ').trim().slice(0,max)}
+function safeUrl(v,b){try{return new URL(v,b).toString()}catch{return''}}
+function samePage(a,b){try{const A=new URL(a),B=new URL(b),t=p=>p.replace(/\/+$/,'')||'/';return A.origin===B.origin&&t(A.pathname)===t(B.pathname)&&A.search===B.search}catch{return false}}
+function isSameDocumentAnchor(el,pageUrl){if(!el?.href||!Number.isFinite(el.targetY))return false;try{const h=new URL(el.href),p=new URL(pageUrl),t=x=>x.replace(/\/+$/,'')||'/';return h.origin===p.origin&&t(h.pathname)===t(p.pathname)&&!!h.hash}catch{return false}}
+function dims(a={}){const vw=Number(a.viewportWidth||a.documentWidth||1440),vh=Number(a.viewportHeight||900),dw=Number(a.documentWidth||vw),dh=Number(a.documentHeight||vh);return{viewportWidth:vw,viewportHeight:vh,documentWidth:dw,documentHeight:dh,captureMode:a.captureMode||'viewport'}}
+function point(el,a){const d=dims(a),full=d.captureMode==='full',w=full?d.documentWidth:d.viewportWidth,h=full?d.documentHeight:d.viewportHeight;return{x:clamp(Number(el.x||w/2)/Math.max(1,w)*100,1,99),y:clamp(Number(el.y||h/2)/Math.max(1,h)*100,1,99),widthPct:clamp(Number(el.w||el.width||0)/Math.max(1,w)*100,0,100),heightPct:clamp(Number(el.h||el.height||0)/Math.max(1,h)*100,0,100)}}
+function role(el){const tag=String(el.tag||'').toLowerCase(),text=clean(el.text);if(el.brand)return'brand';if(tag==='img'||tag==='video'||el.role==='media')return'media';if(tag==='h1')return'hero';if(tag==='h2'||tag==='h3')return'section';if(tag==='button'||el.role==='button')return CTA_RE.test(text)?'cta':'control';if(tag==='a'){if(el.inNav)return'nav';if(CTA_RE.test(text))return'cta';return'link'}return'content'}
+function roleGroup(r){if(['hero','section'].includes(r))return'headings';if(r==='media')return'media';if(['nav','link'].includes(r))return'navigation';if(['cta','control'].includes(r))return'actions';if(r==='brand')return'brand';return'other'}
+function positionLabel(x,y){const v=y<24?'상단':y<58?'중단':'하단',h=x<36?'좌측':x>64?'우측':'중앙';return`${v} · ${h}`}
+function regionIndex(el,page,grouping='screen'){const d=dims(page),full=d.captureMode==='full',topPx=(el.y/100)*(full?d.documentHeight:d.viewportHeight),unit=grouping==='section'?d.viewportHeight*.62:grouping==='element'?d.viewportHeight*.38:d.viewportHeight*.92;return Math.max(0,Math.floor(topPx/Math.max(220,unit)))}
+function normalizeElements(a){const source=Array.isArray(a?.elements)?a.elements:[],d=dims(a);return source.map((el,i)=>{const text=clean(el.text);if(!text)return null;const p=point(el,a);return{id:el.id||`el-${i}`,tag:String(el.tag||'').toLowerCase(),role:role(el),group:roleGroup(role(el)),text,href:safeUrl(el.href,a.url),x:p.x,y:p.y,widthPct:p.widthPct,heightPct:p.heightPct,top:Number(el.top||el.y||0),width:Number(el.w||el.width||0),height:Number(el.h||el.height||0),targetX:Number(el.targetX||0)?clamp(Number(el.targetX)/Math.max(1,d.captureMode==='full'?d.documentWidth:d.viewportWidth)*100,1,99):null,targetY:Number(el.targetY||0)?clamp(Number(el.targetY)/Math.max(1,d.captureMode==='full'?d.documentHeight:d.viewportHeight)*100,1,99):null,inNav:!!el.inNav,brand:!!el.brand}}).filter(Boolean).filter(el=>d.captureMode==='full'||(el.top<d.viewportHeight&&el.top+el.height>0)).filter((el,i,list)=>list.findIndex(x=>x.text===el.text&&x.href===el.href&&x.role===el.role)===i)}
+function score(el,pageUrl,nextUrl=''){if(SKIP_RE.test(el.text))return-100;let s={hero:120,media:104,section:82,cta:92,nav:62,brand:46,control:58,link:42}[el.role]||10;if(el.widthPct>28&&el.role==='media')s+=18;if(el.widthPct<2&&el.heightPct<2)s-=15;if(el.y<28)s+=8;if(el.y>90)s-=5;if(el.href){try{const u=new URL(el.href),p=new URL(pageUrl);if(u.origin===p.origin)s+=8;else s-=15;if(u.hash&&Number.isFinite(el.targetY))s+=18;if(nextUrl&&samePage(el.href,nextUrl))s+=55}catch{s-=20}}if(FEATURE_RE.test(el.text))s+=12;if(CTA_RE.test(el.text))s+=12;if(el.inNav)s+=3;return s}
+function scoreLink(el,pageUrl){return score(el,pageUrl,'')+(el.href?8:-100)}
+export function suggestInternalLinks(analysis,limit=2){const es=normalizeElements(analysis),current=analysis?.url||'';return es.filter(e=>['nav','link','cta'].includes(e.role)&&e.href&&!samePage(e.href,current)).map(e=>({...e,score:scoreLink(e,current)})).filter(e=>e.score>0).sort((a,b)=>b.score-a.score||a.top-b.top).filter((e,i,l)=>l.findIndex(x=>samePage(x.href,e.href))===i).slice(0,limit)}
+function scopeFrom(options={}){const inScope=options.scope||{};return{...DEFAULT_SCOPE,...inScope,pageLimit:clamp(Number(inScope.pageLimit||DEFAULT_SCOPE.pageLimit),1,5),elementLimit:clamp(Number(inScope.elementLimit||DEFAULT_SCOPE.elementLimit),4,20),roles:Array.isArray(inScope.roles)&&inScope.roles.length?inScope.roles:DEFAULT_SCOPE.roles}}
+function allowed(el,scope){return scope.roles.includes(el.group)}
+function behaviorFor(el,nextUrl,pageUrl){if(nextUrl&&el.href&&samePage(el.href,nextUrl))return'navigate';if(isSameDocumentAnchor(el,pageUrl))return'anchor';if(el.role==='cta')return'click';return'focus'}
+function selectCandidates(elements,page,nextUrl,scope){const scored=elements.map(e=>({...e,score:score(e,page.url,nextUrl),region:regionIndex(e,page,scope.grouping),position:positionLabel(e.x,e.y)})).filter(e=>allowed(e,scope)&&e.score>-60);
+  const selected=new Set();const add=e=>{if(e&&selected.size<scope.elementLimit)selected.add(e.id)};
+  add(scored.find(e=>e.role==='hero'));
+  add(scored.filter(e=>e.role==='media').sort((a,b)=>b.score-a.score)[0]);
+  if(nextUrl)add(scored.filter(e=>e.href&&samePage(e.href,nextUrl)).sort((a,b)=>b.score-a.score)[0]);
+  const anchorByTarget=[];
+  scored.filter(e=>isSameDocumentAnchor(e,page.url)).sort((a,b)=>(a.targetY??99)-(b.targetY??99)||b.score-a.score).forEach(e=>{const same=anchorByTarget.find(x=>Math.abs((x.targetY||0)-(e.targetY||0))<3);if(!same)anchorByTarget.push(e);else if(e.score>same.score)anchorByTarget[anchorByTarget.indexOf(same)]=e});
+  anchorByTarget.slice(0,Math.min(4,scope.elementLimit)).forEach(add);
+  const regions=new Set();
+  scored.filter(e=>['section','media','hero'].includes(e.role)).sort((a,b)=>a.y-b.y||b.score-a.score).forEach(e=>{if(selected.size>=scope.elementLimit)return;if(!regions.has(e.region)){regions.add(e.region);add(e)}});
+  scored.sort((a,b)=>b.score-a.score||a.y-b.y).forEach(add);
+  return scored.sort((a,b)=>a.y-b.y||a.x-b.x).map(e=>({...e,selected:selected.has(e.id),behavior:behaviorFor(e,nextUrl,page.url),targetPageIndex:nextUrl&&e.href&&samePage(e.href,nextUrl)?page.pageIndex+1:null}))}
+function overviewPoint(page){if(page.captureMode==='full'&&page.documentHeight>page.viewportHeight*1.15)return{x:50,y:clamp(page.viewportHeight*.46/Math.max(1,page.documentHeight)*100,3,30)};return{x:50,y:50}}
+function nearestContent(page,targetY,used=new Set()){return page.elements.filter(e=>e.selected&&!used.has(e.id)&&['hero','media','section'].includes(e.role)).map(e=>({e,d:Math.abs(e.y-targetY)})).sort((a,b)=>a.d-b.d)[0]?.e||null}
+function makeStep(pageIndex,action,el,extra={}){return{id:uid('beat'),pageIndex,action,elementId:el?.id||null,role:el?.role||(extra.role||action),label:clean(extra.label||el?.text||''),targetPageIndex:Number.isInteger(extra.targetPageIndex)?extra.targetPageIndex:null,impact:extra.impact||({establish:'reveal',focus:'punch',track:'track',click:'click',anchor:'click',navigate:'navigate',resolve:'resolve'}[action]||'punch'),enabled:extra.enabled!==false,duration:Number(extra.duration||0)||null,targetX:Number.isFinite(Number(extra.targetX))?Number(extra.targetX):(Number.isFinite(Number(el?.targetX))?Number(el.targetX):null),targetY:Number.isFinite(Number(extra.targetY))?Number(extra.targetY):(Number.isFinite(Number(el?.targetY))?Number(el.targetY):null),x:Number.isFinite(Number(extra.x))?Number(extra.x):null,y:Number.isFinite(Number(extra.y))?Number(extra.y):null,synthetic:!!extra.synthetic}}
+function buildFlow(pages){const flow=[];pages.forEach((page,pageIndex)=>{const selected=page.elements.filter(e=>e.selected),used=new Set();flow.push(makeStep(pageIndex,'establish',null,{label:`${page.title} · 전체`,impact:pageIndex===0?'reveal':'navigate'}));
+    const intro=selected.filter(e=>['hero','media'].includes(e.role)).sort((a,b)=>a.y-b.y).slice(0,2);intro.forEach((e,i)=>{used.add(e.id);flow.push(makeStep(pageIndex,'focus',e,{impact:e.role==='media'?'orbit':i===0?'punch':'sweep'}))});
+    const anchors=selected.filter(e=>isSameDocumentAnchor(e,page.url)).sort((a,b)=>(a.targetY??99)-(b.targetY??99)||b.score-a.score);
+    anchors.forEach((e)=>{used.add(e.id);flow.push(makeStep(pageIndex,'anchor',e,{impact:'click',targetX:e.targetX,targetY:e.targetY}));const target=nearestContent(page,e.targetY??e.y,used);if(target&&Math.abs(target.y-(e.targetY??target.y))<20){used.add(target.id);flow.push(makeStep(pageIndex,'track',target,{impact:Math.abs(target.y-e.y)>28?'whip':'track'}))}else if(Number.isFinite(e.targetY)){flow.push(makeStep(pageIndex,'track',null,{label:`${e.text} 영역`,role:'section',x:e.targetX||50,y:e.targetY,targetX:e.targetX||50,targetY:e.targetY,impact:'whip',synthetic:true}))}});
+    const nav=selected.find(e=>e.behavior==='navigate');
+    const remaining=selected.filter(e=>!used.has(e.id)&&e.id!==nav?.id&&!['nav','link'].includes(e.role)).sort((a,b)=>a.y-b.y).slice(0,4);remaining.forEach(e=>{used.add(e.id);flow.push(makeStep(pageIndex,e.role==='cta'?'click':Math.abs((flow.at(-1)?.targetY??e.y)-e.y)>24?'track':'focus',e,{impact:e.role==='cta'?'click':e.role==='media'?'orbit':'sweep'}))});
+    if(nav){used.add(nav.id);flow.push(makeStep(pageIndex,'navigate',nav,{targetPageIndex:nav.targetPageIndex??pageIndex+1,impact:'navigate'}))}
+    if(pageIndex===pages.length-1){const cta=selected.find(e=>e.role==='cta'&&!used.has(e.id));if(cta){used.add(cta.id);flow.push(makeStep(pageIndex,'click',cta,{impact:'click'}))}}
+  });if(pages.length)flow.push(makeStep(pages.length-1,'resolve',null,{label:`${pages.at(-1).title} · 마무리`,impact:'resolve'}));return flow}
+function pageFromScene(scene,pageIndex,scope,nextScene){const a=scene.sourceAnalysis||{url:scene.sourceUrl||'',title:scene.name||`페이지 ${pageIndex+1}`,elements:[]},d=dims(a),raw=normalizeElements(a);const page={id:`page-${pageIndex}-${Date.now().toString(36)}`,pageIndex,title:clean(a.title||scene.name||`페이지 ${pageIndex+1}`),url:scene.sourceUrl||a.url||'',sourceSceneId:scene.id,detectedCount:raw.length,...d,elements:[]};page.elements=selectCandidates(raw,page,nextScene?.sourceUrl||'',scope);return page}
+export function createDirectorPlan(scenes,options={}){const scope=scopeFrom(options),limited=scenes.slice(0,scope.pageLimit),pages=limited.map((scene,i)=>pageFromScene(scene,i,scope,limited[i+1]));const plan={version:4,scope,detail:options.detail||'standard',pages,flow:[]};plan.flow=buildFlow(pages);return plan}
+export function rebuildFlowFromSelection(plan){if(plan?.pages)plan.flow=buildFlow(plan.pages);return plan}
+export function toggleElementSelection(plan,pageIndex,elementId,selected){const e=plan?.pages?.[pageIndex]?.elements?.find(x=>x.id===elementId);if(!e)return plan;e.selected=Boolean(selected);return rebuildFlowFromSelection(plan)}
+export function setElementBehavior(plan,pageIndex,elementId,behavior,targetPageIndex=null){const e=plan?.pages?.[pageIndex]?.elements?.find(x=>x.id===elementId);if(!e)return plan;e.behavior=behavior;e.targetPageIndex=behavior==='navigate'?Number(targetPageIndex??pageIndex+1):null;e.selected=behavior!=='skip';return rebuildFlowFromSelection(plan)}
+export function updateFlowStep(plan,stepId,patch={}){const s=plan?.flow?.find(x=>x.id===stepId);if(!s)return plan;if(patch.action&&ACTIONS.has(patch.action))s.action=patch.action;if('targetPageIndex'in patch)s.targetPageIndex=patch.targetPageIndex===null?null:Number(patch.targetPageIndex);if('impact'in patch)s.impact=String(patch.impact||s.impact);if('enabled'in patch)s.enabled=!!patch.enabled;if('duration'in patch)s.duration=patch.duration?Number(patch.duration):null;return plan}
+export function moveFlowStep(plan,stepId,delta){const f=plan?.flow||[],i=f.findIndex(x=>x.id===stepId),n=i+Number(delta||0);if(i<0||n<0||n>=f.length)return plan;const[x]=f.splice(i,1);f.splice(n,0,x);return plan}
+export function removeFlowStep(plan,stepId){if(plan?.flow)plan.flow=plan.flow.filter(x=>x.id!==stepId);return plan}
+export function addElementToFlow(plan,pageIndex,elementId,afterStepId=null){const p=plan?.pages?.[pageIndex],e=p?.elements?.find(x=>x.id===elementId);if(!e)return plan;e.selected=true;return rebuildFlowFromSelection(plan)}
+export function planSummary(plan){const f=(plan?.flow||[]).filter(x=>x.enabled!==false);return{pages:plan?.pages?.length||0,beats:f.length,navigations:f.filter(x=>x.action==='navigate').length,selected:(plan?.pages||[]).reduce((n,p)=>n+p.elements.filter(e=>e.selected).length,0)}}
+function recommendedZoom(el,page,action='focus'){const base={brand:116,hero:132,media:138,section:140,nav:148,cta:154,link:146,control:150}[el.role]||136,target=action==='track'?base+4:action==='click'||action==='navigate'?base+5:base,max={brand:126,hero:146,media:150,section:152,nav:158,cta:164,link:158,control:160}[el.role]||152;const vw=Math.max(1,page.viewportWidth||1440),vh=Math.max(1,page.viewportHeight||900),dw=Math.max(1,page.documentWidth||vw),dh=Math.max(1,page.documentHeight||vh),ratio=vw/vh,bw=Math.min(dw,dh*ratio),bh=Math.min(dh,dw/ratio),ew=Math.max(1,el.width||(el.widthPct/100)*dw||dw*.2),eh=Math.max(1,el.height||(el.heightPct/100)*dh||vh*.08);return clamp(Math.min(target,bw/(ew*1.25)*100,bh/(eh*1.7)*100,max),108,max)}
+function anchor(el){let x=.5;if(el.x<34)x=(el.role==='hero'||el.role==='section')? .35:.32;else if(el.x>66)x=(el.role==='hero'||el.role==='section')? .65:.68;let y=.5;if(el.role==='nav'||el.y<14)y=.22;else if(el.role==='hero')y=.40;else if(el.role==='media')y=.52;else if(el.y>76)y=.60;else if(el.y<32)y=.40;return{anchorX:x,anchorY:y}}
+export function buildBeatSpecs(plan){const pages=plan?.pages||[],flow=(plan?.flow||[]).filter(s=>s.enabled!==false),out=[];flow.forEach(s=>{const p=pages[s.pageIndex];if(!p)return;const el=s.elementId?p.elements.find(e=>e.id===s.elementId):null,ov=overviewPoint(p);if(s.action==='establish'||s.action==='resolve'){out.push({pageIndex:s.pageIndex,role:s.action==='resolve'?'outro':'overview',intent:s.action,label:s.label||p.title,x:ov.x,y:ov.y,zoom:100,anchorX:.5,anchorY:.5,behavior:'focus',impact:s.impact,duration:s.duration,flowStepId:s.id});return}if(!el&&s.synthetic){out.push({pageIndex:s.pageIndex,role:s.role||'section',intent:'track',label:s.label,x:s.x??s.targetX??50,y:s.y??s.targetY??50,zoom:136,anchorX:.5,anchorY:.48,behavior:'focus',impact:s.impact||'whip',duration:s.duration,flowStepId:s.id});return}if(!el)return;const a=anchor(el),behavior=s.action==='navigate'?'navigate':s.action==='click'||s.action==='anchor'?'click':'focus',common={pageIndex:s.pageIndex,role:el.role,label:el.text,x:el.x,y:el.y,zoom:recommendedZoom(el,p,s.action),anchorX:a.anchorX,anchorY:a.anchorY,href:el.href,targetPageIndex:s.targetPageIndex,flowStepId:s.id,widthPct:el.widthPct,heightPct:el.heightPct};out.push({...common,intent:s.action,behavior,impact:s.impact||s.action,duration:s.duration});if(s.action==='anchor'&&Number.isFinite(s.targetY)&&!(flow.some(x=>x.id===s.id+':target'))){/* target is emitted as separate flow step when possible */}});return out}

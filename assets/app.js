@@ -1,6 +1,6 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=7.0.0';
-import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=7.0.0';
-import { addElementToFlow, buildBeatSpecs, createDirectorPlan, moveFlowStep, planSummary, removeFlowStep, setElementBehavior, suggestInternalLinks, updateFlowStep } from './director.js?v=7.0.0';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=8.0.0';
+import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=8.0.0';
+import { buildBeatSpecs, createDirectorPlan, moveFlowStep, planSummary, rebuildFlowFromSelection, removeFlowStep, suggestInternalLinks, toggleElementSelection, updateFlowStep } from './director.js?v=8.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -15,14 +15,14 @@ function windowProgress(progress, start, end, easing = 'cinematic') {
   if (easing === 'linear') return p;
   return easeInOut(p);
 }
-const STORAGE_KEY = 'motionframe:v7:project';
-const LEGACY_STORAGE_KEYS = ['motionframe:v6:project','motionframe:v5:project'];
-const TEMPLATE_KEY = 'motionframe:v7:templates';
-const LEGACY_TEMPLATE_KEYS = ['motionframe:v6:templates','motionframe:v5:templates'];
+const STORAGE_KEY = 'motionframe:v8:project';
+const LEGACY_STORAGE_KEYS = ['motionframe:v7:project','motionframe:v6:project','motionframe:v5:project'];
+const TEMPLATE_KEY = 'motionframe:v8:templates';
+const LEGACY_TEMPLATE_KEYS = ['motionframe:v7:templates','motionframe:v6:templates','motionframe:v5:templates'];
 const DB_NAME = 'motionframe-studio-v5';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
-const DOM_FUNCTION = `({page:p})=>p.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,nav a,button,[role=button],a[href],main img,main video,[class*=mockup],[class*=preview]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,e:a.slice(0,120).map((e,i)=>{let r=e.getBoundingClientRect(),s=getComputedStyle(e),g=e.tagName.toLowerCase(),m=g==='img'||g==='video',k=e.hash&&document.getElementById(e.hash.slice(1)),z=k&&k.getBoundingClientRect(),t=(e.innerText||e.textContent||e.getAttribute('aria-label')||e.getAttribute('alt')||(m?'Product preview':'')).trim().replace(/\s+/g,' ').slice(0,100);if(!t||r.width<4||r.height<4||s.display==='none'||s.visibility==='hidden')return null;return{id:'e'+i,g,r:e.getAttribute('role')||'',t,u:e.href||'',x:r.left+r.width/2+scrollX,y:r.top+r.height/2+scrollY,o:r.top+scrollY,w:r.width,h:r.height,X:z?z.left+z.width/2+scrollX:0,Y:z?z.top+z.height/2+scrollY:0,n:!!e.closest('nav'),b:!!e.closest('header')&&g==='a'}}).filter(Boolean)}})`;
+const DOM_FUNCTION = `({page:p})=>p.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,nav a,button,[role=button],main a[href],main img,main video,[class*=mockup],[class*=preview]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,e:a.slice(0,120).map((e,i)=>{let r=e.getBoundingClientRect(),s=getComputedStyle(e),g=e.tagName.toLowerCase(),m=g==='img'||g==='video',k=e.hash&&document.getElementById(e.hash.slice(1)),z=k&&k.getBoundingClientRect(),t=(e.innerText||e.textContent||e.getAttribute('aria-label')||e.getAttribute('alt')||(m?'Product preview':'')).trim().replace(/\s+/g,' ').slice(0,100);if(!t||r.width<4||r.height<4||s.display==='none'||s.visibility==='hidden')return null;return{id:'e'+i,g,r:e.getAttribute('role')||'',t,u:e.href||'',x:r.left+r.width/2+scrollX,y:r.top+r.height/2+scrollY,o:r.top+scrollY,w:r.width,h:r.height,X:z?z.left+z.width/2+scrollX:0,Y:z?z.top+z.height/2+scrollY:0,n:!!e.closest('nav'),b:!!e.closest('header')&&g==='a'}}).filter(Boolean)}})`;
 
 let dbPromise;
 let state;
@@ -174,7 +174,7 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 7,
+    version: 8,
     aspect: '16:9',
     resolution: '1280x720',
     frameStyle: 'browser',
@@ -193,7 +193,7 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 7,
+    version: 8,
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
     frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
@@ -1092,32 +1092,85 @@ function flowActionLabel(value) {
 }
 
 function flowImpactLabel(value) {
-  return { reveal:'Reveal', punch:'Punch Zoom', sweep:'Sweep', track:'Scroll Track', click:'Cursor Impact', navigate:'Page Impact', resolve:'Resolve' }[value] || value;
+  return { reveal:'Reveal', punch:'Punch Zoom', sweep:'Sweep', orbit:'Arc Orbit', track:'Scroll Track', whip:'Whip Scroll', click:'Cursor Impact', navigate:'Page Impact', resolve:'Resolve' }[value] || value;
+}
+
+function currentAnalysisScope() {
+  const roles = $$('[data-analysis-role]:checked').map((input) => input.dataset.analysisRole).filter(Boolean);
+  return {
+    pageLimit: Number($('#analysisPageLimitSelect')?.value || 3),
+    elementLimit: Number($('#analysisElementLimitSelect')?.value || 10),
+    grouping: $('#analysisBandSelect')?.value || 'screen',
+    roles: roles.length ? roles : ['headings','media','navigation','actions']
+  };
+}
+
+function positionPercentLabel(element) {
+  return `${element.position || '위치'} · X ${Math.round(element.x || 0)}% · Y ${Math.round(element.y || 0)}%`;
+}
+
+function renderAnalysisBoard() {
+  const root = $('#analysisPageList');
+  if (!root) return;
+  root.innerHTML = '';
+  if (!directorPlan?.pages?.length) {
+    root.innerHTML = `<div class="analysis-empty"><strong>URL을 분석하면 페이지별 요소가 실제 위치 순서로 나타납니다.</strong><span>제목·제품 화면·섹션·메뉴·버튼 중 사용할 항목만 체크하면 아래 Flow가 자동 재구성됩니다.</span></div>`;
+    return;
+  }
+  directorPlan.pages.forEach((page, pageIndex) => {
+    const card = document.createElement('article');
+    card.className = 'analysis-page-card';
+    const selectedCount = page.elements.filter((element) => element.selected).length;
+    const markers = page.elements.slice(0, 26).map((element) => `<i class="analysis-map-dot role-${escapeHtml(element.role)} ${element.selected ? 'selected' : ''}" style="left:${clamp(element.x,3,97)}%;top:${clamp(element.y,2,98)}%" title="${escapeHtml(element.text)}"></i>`).join('');
+    card.innerHTML = `
+      <header class="analysis-page-head">
+        <div><strong>${String(pageIndex + 1).padStart(2,'0')} · ${escapeHtml(page.title)}</strong><span>${escapeHtml(page.url)}</span></div>
+        <b>${selectedCount}/${page.elements.length} 선택</b>
+      </header>
+      <div class="analysis-page-body">
+        <div class="analysis-map" aria-label="페이지 요소 위치 미니맵"><span>TOP</span>${markers}<em>BOTTOM</em></div>
+        <div class="analysis-element-list"></div>
+      </div>`;
+    const list = card.querySelector('.analysis-element-list');
+    page.elements.forEach((element) => {
+      const row = document.createElement('label');
+      row.className = `analysis-element-row role-${element.role}`;
+      const href = element.href ? (() => { try { const u = new URL(element.href); return `${u.pathname || '/'}${u.hash || ''}`; } catch { return element.href; } })() : '';
+      row.innerHTML = `<input type="checkbox" ${element.selected ? 'checked' : ''} />
+        <span class="analysis-role">${escapeHtml(directorRoleLabel(element.role))}</span>
+        <span class="analysis-copy"><strong>${escapeHtml(element.text)}</strong><small>${escapeHtml(positionPercentLabel(element))}${href ? ` · → ${escapeHtml(href)}` : ''}</small></span>`;
+      row.querySelector('input').addEventListener('change', (event) => {
+        toggleElementSelection(directorPlan, pageIndex, element.id, event.target.checked);
+        state.directorPlan = directorPlan;
+        saveState();
+        renderDirectorPlan();
+      });
+      list.append(row);
+    });
+    root.append(card);
+  });
 }
 
 function renderDirectorPlan() {
   const section = $('#director');
   const root = $('#directorFlow');
-  const library = $('#directorLibrary');
-  if (!section || !root || !library) return;
+  if (!section || !root) return;
   section.hidden = false;
+  renderAnalysisBoard();
 
   if (!directorPlan?.pages?.length) {
-    $('#directorSummary').textContent = '분석 전 · 기본 연출 기준';
+    $('#directorSummary').textContent = '분석 전 · 범위를 먼저 정하세요';
     root.innerHTML = `<div class="flow-placeholder">
-      <div class="flow-step-row"><span class="flow-index">01</span><div><small>PAGE</small><strong>페이지 전체</strong></div><b>Reveal</b></div>
-      <div class="flow-step-row"><span class="flow-index">02</span><div><small>H1</small><strong>메인 제목</strong></div><b>Punch Zoom</b></div>
-      <div class="flow-step-row"><span class="flow-index">03</span><div><small>PRODUCT / FEATURE</small><strong>제품 화면 또는 핵심 기능</strong></div><b>Sweep / Track</b></div>
-      <div class="flow-step-row"><span class="flow-index">04</span><div><small>NAV / BUTTON</small><strong>메뉴로 이동 → 커서 클릭</strong></div><b>Cursor Impact</b></div>
-      <div class="flow-step-row"><span class="flow-index">05</span><div><small>NEXT PAGE</small><strong>다음 페이지 진입</strong></div><b>Page Impact</b></div>
-      <div class="flow-step-row"><span class="flow-index">06</span><div><small>CTA</small><strong>마지막 행동 → 전체 Resolve</strong></div><b>Resolve</b></div>
+      <div class="flow-step-row"><span class="flow-index">01</span><div><small>SCOPE</small><strong>페이지 수 · 요소 종류 · 개수 선택</strong></div><b>CHECK</b></div>
+      <div class="flow-step-row"><span class="flow-index">02</span><div><small>ANALYZE</small><strong>실제 위치 순서로 요소 정리</strong></div><b>POSITION</b></div>
+      <div class="flow-step-row"><span class="flow-index">03</span><div><small>FLOW</small><strong>Hero → 제품 → 버튼 → 목적지 연결</strong></div><b>DIRECT</b></div>
+      <div class="flow-step-row"><span class="flow-index">04</span><div><small>MOTION</small><strong>먼 구간은 Whip, 가까운 구간은 Sweep</strong></div><b>MOTION</b></div>
     </div>`;
-    library.innerHTML = `<div class="director-library-empty"><strong>URL을 분석하면 실제 사이트 요소가 여기에 나타납니다.</strong><span>제목, 메뉴명, 버튼명, 링크 목적지와 화면 위치를 읽어 플로우를 자동 생성합니다.</span></div>`;
     return;
   }
 
   const summary = planSummary(directorPlan);
-  $('#directorSummary').textContent = `${summary.pages} pages · ${summary.beats} flow steps · ${summary.navigations} page moves`;
+  $('#directorSummary').textContent = `${summary.pages} pages · ${summary.selected} selected · ${summary.beats} flow steps`;
   root.innerHTML = '';
   const flow = directorPlan.flow || [];
   flow.forEach((step, index) => {
@@ -1133,16 +1186,18 @@ function renderDirectorPlan() {
       <div class="flow-subject">
         <small>${escapeHtml(page?.title || 'Page')} · ${escapeHtml(directorRoleLabel(step.role))}</small>
         <strong>${escapeHtml(step.label || element?.text || flowActionLabel(step.action))}</strong>
-        ${element?.href ? `<span>${escapeHtml((()=>{try{const u=new URL(element.href);return (u.pathname || '/') + (u.hash || '');}catch{return element.href;}})())}</span>` : `<span>${escapeHtml(flowActionLabel(step.action))}</span>`}
+        <span>${element ? escapeHtml(positionPercentLabel(element)) : escapeHtml(flowActionLabel(step.action))}</span>
       </div>
       <label class="flow-control"><span>동작</span><select class="flow-action">
-        ${step.elementId ? `<option value="focus" ${step.action==='focus'?'selected':''}>요소 집중</option><option value="track" ${step.action==='track'?'selected':''}>확대 유지 · 따라가기</option>${canNavigate?`<option value="click" ${step.action==='click'?'selected':''}>커서 이동 · 클릭</option>${canAnchor?`<option value="anchor" ${step.action==='anchor'?'selected':''}>클릭 → 같은 페이지 이동</option>`:''}<option value="navigate" ${step.action==='navigate'?'selected':''}>클릭 → 다음 페이지</option>`:''}` : `<option value="establish" ${step.action==='establish'?'selected':''}>페이지 전체 공개</option><option value="resolve" ${step.action==='resolve'?'selected':''}>마무리 줌아웃</option>`}
+        ${step.elementId ? `<option value="focus" ${step.action==='focus'?'selected':''}>요소 집중</option><option value="track" ${step.action==='track'?'selected':''}>확대 유지 · 따라가기</option>${canNavigate?`<option value="click" ${step.action==='click'?'selected':''}>커서 이동 · 클릭</option>${canAnchor?`<option value="anchor" ${step.action==='anchor'?'selected':''}>클릭 → 같은 페이지 이동</option>`:''}<option value="navigate" ${step.action==='navigate'?'selected':''}>클릭 → 다음 페이지</option>`:''}` : `<option value="establish" ${step.action==='establish'?'selected':''}>페이지 전체 공개</option><option value="track" ${step.action==='track'?'selected':''}>목적지로 이동</option><option value="resolve" ${step.action==='resolve'?'selected':''}>마무리 줌아웃</option>`}
       </select></label>
       <label class="flow-control"><span>연출</span><select class="flow-impact">
         <option value="reveal" ${step.impact==='reveal'?'selected':''}>Reveal</option>
         <option value="punch" ${step.impact==='punch'?'selected':''}>Punch Zoom</option>
         <option value="sweep" ${step.impact==='sweep'?'selected':''}>Sweep</option>
+        <option value="orbit" ${step.impact==='orbit'?'selected':''}>Arc Orbit</option>
         <option value="track" ${step.impact==='track'?'selected':''}>Scroll Track</option>
+        <option value="whip" ${step.impact==='whip'?'selected':''}>Whip Scroll</option>
         <option value="click" ${step.impact==='click'?'selected':''}>Cursor Impact</option>
         <option value="navigate" ${step.impact==='navigate'?'selected':''}>Page Impact</option>
         <option value="resolve" ${step.impact==='resolve'?'selected':''}>Resolve</option>
@@ -1152,13 +1207,13 @@ function renderDirectorPlan() {
 
     const action = row.querySelector('.flow-action');
     const impact = row.querySelector('.flow-impact');
-    const targetWrap = row.querySelector('.flow-target');
-    const target = targetWrap?.querySelector('select');
+    const target = row.querySelector('.flow-target select');
     action?.addEventListener('change', () => {
       const nextAction = action.value;
       let targetPageIndex = step.targetPageIndex;
       if (nextAction === 'navigate' && !Number.isInteger(Number(targetPageIndex))) targetPageIndex = Math.min(step.pageIndex + 1, directorPlan.pages.length - 1);
-      updateFlowStep(directorPlan, step.id, { action: nextAction, targetPageIndex: nextAction === 'navigate' ? targetPageIndex : null, impact: nextAction === 'navigate' ? 'navigate' : (nextAction === 'click' || nextAction === 'anchor') ? 'click' : nextAction === 'track' ? 'track' : step.impact });
+      const defaultImpact = nextAction === 'navigate' ? 'navigate' : (nextAction === 'click' || nextAction === 'anchor') ? 'click' : nextAction === 'track' ? 'track' : step.impact;
+      updateFlowStep(directorPlan, step.id, { action: nextAction, targetPageIndex: nextAction === 'navigate' ? targetPageIndex : null, impact: defaultImpact });
       state.directorPlan = directorPlan; saveState(); renderDirectorPlan();
     });
     impact?.addEventListener('change', () => { updateFlowStep(directorPlan, step.id, { impact: impact.value }); state.directorPlan = directorPlan; saveState(); });
@@ -1168,24 +1223,6 @@ function renderDirectorPlan() {
     row.querySelector('.flow-remove')?.addEventListener('click', () => { removeFlowStep(directorPlan, step.id); state.directorPlan=directorPlan; saveState(); renderDirectorPlan(); });
     root.append(row);
   });
-
-  library.innerHTML = '';
-  directorPlan.pages.forEach((page, pageIndex) => {
-    const details = document.createElement('details');
-    details.className = 'director-library-page';
-    if (pageIndex === 0) details.open = true;
-    details.innerHTML = `<summary><div><strong>${String(pageIndex + 1).padStart(2,'0')} · ${escapeHtml(page.title)}</strong><span>${escapeHtml(page.url)}</span></div><b>${page.detectedCount} DOM</b></summary><div class="director-library-items"></div>`;
-    const list = details.querySelector('.director-library-items');
-    page.elements.forEach((element) => {
-      const used = (directorPlan.flow || []).some((step) => step.pageIndex === pageIndex && step.elementId === element.id);
-      const item = document.createElement('div');
-      item.className = `director-library-item ${used ? 'used' : ''}`;
-      item.innerHTML = `<div><small>${escapeHtml(directorRoleLabel(element.role))}</small><strong>${escapeHtml(element.text)}</strong>${element.href?`<span>${escapeHtml((()=>{try{return new URL(element.href).pathname||'/';}catch{return element.href;}})())}</span>`:''}</div><button type="button" ${used?'disabled':''}>${used?'추가됨':'+'}</button>`;
-      item.querySelector('button')?.addEventListener('click', () => { addElementToFlow(directorPlan,pageIndex,element.id); state.directorPlan=directorPlan; saveState(); renderDirectorPlan(); });
-      list.append(item);
-    });
-    library.append(details);
-  });
 }
 
 function rebuildDirectorPlan() {
@@ -1194,17 +1231,28 @@ function rebuildDirectorPlan() {
     return;
   }
   directorTemplateId = $('#captureTemplateSelect').value || directorTemplateId;
-  directorPlan = createDirectorPlan(directorBases, { detail: $('#directorDetailSelect').value || 'standard' });
+  directorPlan = createDirectorPlan(directorBases, { scope: currentAnalysisScope() });
   state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId; saveState();
   renderDirectorPlan();
   $('#director').hidden = false;
   location.hash = 'director';
 }
 
+function rebuildDirectorFromSelection() {
+  if (!directorPlan?.pages?.length) return rebuildDirectorPlan();
+  rebuildFlowFromSelection(directorPlan);
+  state.directorPlan = directorPlan;
+  saveState();
+  renderDirectorPlan();
+  toast('체크한 요소의 실제 위치 순서로 Flow를 다시 만들었습니다.');
+}
+
 function shotTiming(intent, impact = '') {
   const key = impact || intent;
   if (intent === 'establish') return { duration:1.55, moveStart:.02, moveEnd:.72, cursorStart:.18, cursorEnd:.58, clickStart:.72, clickEnd:.84 };
-  if (intent === 'track' || key === 'track') return { duration:2.15, moveStart:.02, moveEnd:.82, cursorStart:.2, cursorEnd:.66, clickStart:.76, clickEnd:.86 };
+  if (key === 'whip') return { duration:1.65, moveStart:.02, moveEnd:.62, cursorStart:.18, cursorEnd:.58, clickStart:.70, clickEnd:.82 };
+  if (key === 'orbit') return { duration:1.9, moveStart:.02, moveEnd:.72, cursorStart:.18, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
+  if (intent === 'track' || key === 'track') return { duration:2.05, moveStart:.02, moveEnd:.76, cursorStart:.2, cursorEnd:.66, clickStart:.76, clickEnd:.86 };
   if (intent === 'navigate') return { duration:1.75, moveStart:.02, moveEnd:.38, cursorStart:.18, cursorEnd:.58, clickStart:.64, clickEnd:.78 };
   if (intent === 'click') return { duration:1.55, moveStart:.02, moveEnd:.36, cursorStart:.16, cursorEnd:.56, clickStart:.62, clickEnd:.76 };
   if (intent === 'resolve') return { duration:1.45, moveStart:.04, moveEnd:.82, cursorStart:.2, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
@@ -1224,6 +1272,17 @@ function cameraFramesForImpact(impact, start, target) {
     const dir=target.x>=start.x?1:-1;
     const mid={x:clamp(lerp(start.x,target.x,.58)+dir*3.5,1,99),y:clamp(lerp(start.y,target.y,.58)-2,1,99),zoom:Math.min(155,Math.max(start.zoom,target.zoom)+5),anchorX:lerp(start.anchorX,target.anchorX,.7),anchorY:lerp(start.anchorY,target.anchorY,.7)};
     return [base(start,{t:0}),base(mid,{t:.52,ease:'inout'}),base(target,{t:.82,ease:'out'}),base(target,{t:1})];
+  }
+  if (impact === 'orbit') {
+    const dir=target.x>=start.x?1:-1;
+    const mid1={x:clamp(lerp(start.x,target.x,.34)-dir*4.8,1,99),y:clamp(lerp(start.y,target.y,.30)-3.2,1,99),zoom:Math.min(158,Math.max(start.zoom,target.zoom)+8),anchorX:lerp(start.anchorX,target.anchorX,.35),anchorY:lerp(start.anchorY,target.anchorY,.35)};
+    const mid2={x:clamp(lerp(start.x,target.x,.72)+dir*2.6,1,99),y:clamp(lerp(start.y,target.y,.74)+1.8,1,99),zoom:Math.min(156,target.zoom+5),anchorX:lerp(start.anchorX,target.anchorX,.78),anchorY:lerp(start.anchorY,target.anchorY,.78)};
+    return [base(start,{t:0}),base(mid1,{t:.30,ease:'inout'}),base(mid2,{t:.58,ease:'inout'}),base(target,{t:.76,ease:'out'}),base(target,{t:1})];
+  }
+  if (impact === 'whip') {
+    const bridge={x:lerp(start.x,target.x,.46),y:lerp(start.y,target.y,.46),zoom:Math.max(100,Math.min(start.zoom,target.zoom)-24),anchorX:.5,anchorY:.5};
+    const punch={...target,zoom:Math.min(162,target.zoom+10)};
+    return [base(start,{t:0}),base({...start,zoom:Math.max(104,start.zoom-18),anchorX:.5,anchorY:.5},{t:.18,ease:'out'}),base(bridge,{t:.38,ease:'linear'}),base(punch,{t:.58,ease:'snap'}),base(target,{t:.72,ease:'out'}),base(target,{t:1})];
   }
   if (impact === 'track') {
     const trackZoom=Math.min(154,Math.max(132,start.zoom,target.zoom));
@@ -1434,10 +1493,11 @@ async function captureUrl(asStory) {
     $('#urlInput').focus();
     return;
   }
-  if (!asStory) urls = urls.slice(0, 1);
+  const analysisScope = currentAnalysisScope();
+  urls = asStory ? urls.slice(0, analysisScope.pageLimit) : urls.slice(0, 1);
   const mode = $('#captureModeSelect').value;
   const viewport = $('#viewportSelect').value;
-  const autoFollow = asStory && urls.length === 1 && Boolean($('#autoFollowInput')?.checked);
+  const autoFollow = asStory && urls.length === 1 && Boolean($('#autoFollowInput')?.checked) && analysisScope.pageLimit > 1;
   const storyButton = $('#urlStoryButton');
   const singleButton = $('#urlSingleButton');
   const originalStoryLabel = storyButton.textContent;
@@ -1460,7 +1520,7 @@ async function captureUrl(asStory) {
         const sceneName = result.analysis?.title || host;
         const scene = await makeImageSceneFromBlob(result.blob, { name: sceneName, sourceType: 'url', sourceUrl: url, analysis: result.analysis });
         bases.push(scene);
-        if (autoFollow && result.analysis && queue.length < 3) {
+        if (autoFollow && result.analysis && queue.length < analysisScope.pageLimit) {
           const suggestion = suggestInternalLinks(result.analysis, 6)
             .filter((item) => {
               try { return new URL(item.href).origin === originalOrigin; } catch { return false; }
@@ -1483,7 +1543,7 @@ async function captureUrl(asStory) {
     if (asStory) {
       directorBases = bases;
       directorTemplateId = $('#captureTemplateSelect').value || 'impact-flow';
-      directorPlan = createDirectorPlan(bases, { detail: $('#directorDetailSelect').value || 'standard' });
+      directorPlan = createDirectorPlan(bases, { scope: analysisScope });
       state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId;
       renderDirectorPlan();
       const autoScenes = buildDirectorScenes();
@@ -1741,7 +1801,7 @@ function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const type=
 async function exportProject(){
   const keys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; const assets={};
   for(const key of keys){const blob=await getAsset(key);if(blob)assets[key]={type:blob.type,data:await blobToDataUrl(blob)};}
-  downloadJson({kind:'motionframe-project',version:7,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
+  downloadJson({kind:'motionframe-project',version:8,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
 }
 
 async function importProjectFile(file){
@@ -1770,7 +1830,9 @@ function bindEvents(){
   $('#urlStoryButton').addEventListener('click',()=>captureUrl(true)); $('#urlSingleButton').addEventListener('click',()=>captureUrl(false)); $('#urlInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();captureUrl(true);}});
   $('#useExampleUrlButton')?.addEventListener('click',()=>{ $('#urlInput').value='https://example.com/'; $('#urlInput').focus(); setCaptureStatus('예제 URL 입력됨','이제 “URL 시퀀스로 쇼릴”을 눌러 실제 캡처를 시작하세요.'); });
   $('#templateSearchInput')?.addEventListener('input',e=>{templateSearchQuery=e.target.value;renderTemplates();});
-  $('#rebuildDirectorButton')?.addEventListener('click',rebuildDirectorPlan); $('#applyDirectorButton')?.addEventListener('click',applyDirectorPlan); $('#directorDetailSelect')?.addEventListener('change',()=>{ if(directorBases.length) rebuildDirectorPlan(); });
+  $('#rebuildDirectorButton')?.addEventListener('click',rebuildDirectorPlan); $('#applyDirectorButton')?.addEventListener('click',applyDirectorPlan); $('#rebuildFromSelectionButton')?.addEventListener('click',rebuildDirectorFromSelection);
+  ['#analysisPageLimitSelect','#analysisElementLimitSelect','#analysisBandSelect'].forEach((selector)=>$(selector)?.addEventListener('change',()=>{ if(directorBases.length) setCaptureStatus('분석 범위 변경됨','‘분석 범위 다시 적용’을 누르면 새 범위로 목록을 다시 만듭니다.','warning'); }));
+  $$('[data-analysis-role]').forEach((input)=>input.addEventListener('change',()=>{ if(directorBases.length) setCaptureStatus('분석 범위 변경됨','‘분석 범위 다시 적용’을 누르면 새 범위로 목록을 다시 만듭니다.','warning'); }));
   bindPathEditor();
   $('#imageUploadButton').addEventListener('click',()=>$('#imageInput').click()); $('#imageInput').addEventListener('change',e=>{handleMediaFiles(e.target.files);e.target.value='';}); $('#screenCaptureButton').addEventListener('click',captureScreen); $('#screenRecordButton').addEventListener('click',recordScreenClip);
   $('#saveTemplateButton').addEventListener('click',()=>{$('#templateNameInput').value='';$('#templateSaveDialog').showModal();setTimeout(()=>$('#templateNameInput').focus(),30);});
@@ -1788,6 +1850,15 @@ function bindEvents(){
   window.addEventListener('beforeunload',()=>{stopPreviewAudio();assetUrlCache.forEach(url=>URL.revokeObjectURL(url));});
 }
 
+function syncScopeControls(scope) {
+  if (!scope) return;
+  if ($('#analysisPageLimitSelect')) $('#analysisPageLimitSelect').value = String(scope.pageLimit || 3);
+  if ($('#analysisElementLimitSelect')) $('#analysisElementLimitSelect').value = String(scope.elementLimit || 10);
+  if ($('#analysisBandSelect')) $('#analysisBandSelect').value = scope.grouping || 'screen';
+  const roles = new Set(scope.roles || ['headings','media','navigation','actions']);
+  $$('[data-analysis-role]').forEach((input) => { input.checked = roles.has(input.dataset.analysisRole); });
+}
+
 function browserSupportCheck(){
   const missing=[]; if(!('indexedDB'in window))missing.push('IndexedDB'); if(!window.MediaRecorder)missing.push('MediaRecorder'); if(!HTMLCanvasElement.prototype.captureStream)missing.push('Canvas captureStream');
   if(missing.length)setCaptureStatus('일부 기능 제한',`${missing.join(', ')} 기능이 없습니다. 최신 Chrome/Edge를 권장합니다.`,'error');
@@ -1798,12 +1869,13 @@ async function init(){
   selectedSceneId=state.scenes[0]?.id||null;
   directorPlan=state.directorPlan?.pages ? state.directorPlan : null;
   directorTemplateId=state.directorTemplateId || 'impact-flow';
+  if (directorPlan?.scope) syncScopeControls(directorPlan.scope);
   if(directorPlan){
     const grouped=new Map();
     state.scenes.filter((scene)=>Number.isInteger(scene.sourcePageIndex)).forEach((scene)=>{if(!grouped.has(scene.sourcePageIndex))grouped.set(scene.sourcePageIndex,structuredClone(scene));});
     directorBases=[...grouped.entries()].sort((a,b)=>a[0]-b[0]).map(([,scene])=>scene);
-    if ((!Array.isArray(directorPlan.flow) || !directorPlan.flow.length) && directorBases.length) {
-      directorPlan=createDirectorPlan(directorBases,{detail:directorPlan.detail || 'standard'});
+    if ((Number(directorPlan.version || 0) < 4 || !Array.isArray(directorPlan.flow) || !directorPlan.flow.length) && directorBases.length) {
+      directorPlan=createDirectorPlan(directorBases,{scope:directorPlan.scope || currentAnalysisScope()});
       state.directorPlan=directorPlan;
       saveState();
     }
