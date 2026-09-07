@@ -1,119 +1,116 @@
-# MotionFrame Studio v6 — `ko9ma7/motionframe` 배포
+# MotionFrame Studio v7 — 시작하기
 
-이번 v6는 첨부된 실제 출력 영상을 기준으로 카메라와 장면 연출 엔진을 다시 수정한 버전입니다.
+## 1. 기존 GitHub Pages 프로젝트 교체
 
-## 1. 기존 저장소 교체
+`motionframe-studio-v7` 폴더 **안쪽의 파일 전체**를 `ko9ma7/motionframe` 저장소 루트에 덮어쓴 뒤 `main`에 push합니다.
 
-1. `motionframe-studio-v6` 폴더 **안쪽 파일 전체**를 `ko9ma7/motionframe` 저장소 루트에 덮어씁니다.
-2. commit / push 합니다.
-3. GitHub → Repository → **Actions**에서 `Deploy MotionFrame Studio to GitHub Pages`가 성공했는지 확인합니다.
-4. **Settings → Pages → Source**가 `GitHub Actions`인지 확인합니다.
-5. 다음 주소를 엽니다.
+GitHub에서 한 번만:
+
+`Settings → Pages → Source → GitHub Actions`
+
+를 선택합니다. 이후 push마다 자동 배포됩니다.
+
+## 2. 이번 버전에서 먼저 볼 곳
+
+배포 후 아래 순서로 확인하세요.
 
 ```text
-https://ko9ma7.github.io/motionframe/
 https://ko9ma7.github.io/motionframe/#capture
 https://ko9ma7.github.io/motionframe/#director
-https://ko9ma7.github.io/motionframe/#templates
 https://ko9ma7.github.io/motionframe/#studio
 ```
 
-CSS/JavaScript는 `?v=6.0.0`으로 분리되어 이전 캐시와 충돌하지 않습니다.
+브라우저에 이전 JS가 남아 있다면 `Ctrl + Shift + R`로 강력 새로고침합니다. v7 asset에는 `?v=7.0.0` 캐시 버전이 붙어 있습니다.
 
-## 2. v6 품질을 확인하려면 기존 URL을 다시 분석하세요
-
-브라우저에 v5 프로젝트가 남아 있으면 이전 장면 설정도 함께 남아 있을 수 있습니다.
-
-배포 후에는 다음 둘 중 하나를 권장합니다.
+## 3. URL 하나만 넣어 테스트
 
 ```text
-A. 같은 URL을 다시 입력 → Auto Director로 쇼릴 만들기
-B. 초기화 → URL 다시 입력
+https://ko9ma7.github.io/motionframe/
 ```
 
-새로 만들어진 장면부터 v6의 Safe Framing / Cinematic Timing이 적용됩니다.
+을 넣고 **Auto Director로 쇼릴 만들기**를 누릅니다.
 
-## 3. 기본적으로 기대해야 하는 결과
+정상이라면 URL 캡처 후 곧바로 Scene 좌표만 나오는 것이 아니라 먼저 **연출 플로우**가 생성됩니다.
 
-예를 들어 Home → Features → Pricing을 분석했다면 표준 모드의 기본 흐름은 다음과 비슷해야 합니다.
+예상 형태:
 
 ```text
-Home 전체 Establish
-→ Home H1에 부드럽게 도착
-→ 잠시 정착
-→ 제품 UI가 있으면 Product Focus
-→ 핵심 기능
-→ Features 메뉴로 카메라 이동
-→ 커서가 Features에 도착
-→ Click
-→ Features 페이지 Page Flow
-→ Features Hero
-→ 제품/핵심 기능
-→ Pricing 메뉴 Click
-→ Pricing 페이지
-→ CTA Click
-→ 전체 Resolve
+01 페이지 전체
+02 H1 제목
+03 제품/주요 콘텐츠
+04 URL 캡처 메뉴 클릭
+05 #capture 영역으로 이동
+06 Auto Director 메뉴 클릭
+07 #director 영역으로 이동
+08 템플릿 메뉴 클릭
+09 #templates 영역으로 이동
+10 편집기 메뉴 클릭
+11 #studio 영역으로 이동
+12 Resolve
 ```
 
-중요한 차이:
+실제 항목 수는 분석된 DOM에 따라 달라집니다.
 
-- 한 샷 전체 시간 동안 계속 움직이지 않습니다.
-- 제목이 좌측에 있으면 왼쪽이 잘리지 않도록 프레이밍합니다.
-- 같은 스크린샷끼리는 기본 Crossfade를 하지 않습니다.
-- 실제 페이지 이동에서만 Page Flow 전환을 사용합니다.
-- Click 전에 카메라가 먼저 정착합니다.
-- 커서는 현재 crop/zoom을 계산한 실제 버튼 좌표로 이동합니다.
+## 4. 가장 중요한 편집 방법
 
-## 4. 링크마다 동작 수정
+Scene의 X/Y 좌표부터 수정하지 마세요.
 
-Auto Director에서 요소별로:
+먼저 **Auto Director · Flow Plan**에서 실제 사이트의 제목/메뉴/버튼을 확인합니다.
+
+각 행에서:
+
+- 무엇을 보여줄지
+- 클릭할지
+- 같은 페이지의 어느 영역으로 갈지
+- 어느 다음 페이지로 갈지
+- Punch / Sweep / Track / Page Impact 중 어떤 연출을 쓸지
+
+를 수정합니다.
+
+그 뒤 **플로우를 영상으로 적용**하면 Scene과 카메라 키프레임이 다시 생성됩니다.
+
+## 5. 참고 영상처럼 더 강한 기본 연출
+
+기본 Motion Style은 **Impact Product Flow**입니다.
+
+기본 문법:
 
 ```text
-설명 · 줌인
-클릭 연출
-클릭 → 페이지 이동
-사용 안 함
+Reveal
+→ Punch Zoom
+→ 확대 상태 Sweep/Scroll Track
+→ 카메라 정착
+→ Cursor Click
+→ Page Impact
+→ 다음 페이지 Punch
+→ Resolve
 ```
 
-을 선택할 수 있습니다.
+템플릿은 이 움직임의 톤만 바꾸고, 사이트 요소와 링크 순서는 Flow Plan이 관리합니다.
 
-링크를 바꾼 뒤 `이 흐름으로 편집`을 누르면 Director 장면을 교체해 다시 생성합니다.
+## 6. 같은 페이지 메뉴
 
-## 5. 모션 템플릿은 마지막에 선택
+`#capture`, `#director`, `#templates`, `#studio` 같은 메뉴는 더 이상 버리지 않습니다.
 
-권장 순서:
+메뉴의 실제 위치에서 클릭한 뒤 목적지 anchor의 실제 Y 위치로 카메라가 추적하도록 기본 Flow가 생성됩니다.
 
-```text
-URL 분석
-→ Auto Director 흐름 확인
-→ 불필요한 메뉴 제외 / 이동 페이지 수정
-→ 이 흐름으로 편집
-→ 모션 스타일 선택
-→ 필요한 장면만 Motion Path 수정
-→ 사운드 미리듣기
-→ WebM 출력
-```
+## 7. 사운드
 
-템플릿은 “무엇을 보여줄지”를 다시 뒤섞지 않고 연출 성격만 바꿉니다.
+사운드 카드의 ▶ 버튼으로 바로 미리 들을 수 있습니다. 기본 BGM 또는 MP3/WAV/OGG를 선택하면 최종 WebM 오디오 트랙에 포함됩니다.
 
-## 6. 사운드
+## 8. WebM 확인
 
-각 기본 사운드의 ▶ 버튼으로 먼저 들어볼 수 있습니다.
+v7에서는 `canvas.captureStream(30)` 연속 스트림을 사용합니다. 이전 샘플처럼 30fps라고 표시되지만 실제 비디오 프레임이 매우 적게 기록되는 문제를 피하기 위한 수정입니다.
 
-v6 내장 BGM에는 클릭 및 페이지 전환에 작은 sound accent도 자동으로 들어갑니다. 사용자가 올린 MP3/WAV/OGG도 사용할 수 있습니다.
+내보낸 파일을 재생해 다음을 확인하세요.
 
-## 7. WebM
+- 전체 영상 시간 동안 영상이 계속 움직이는지
+- 오디오만 뒤에 남지 않는지
+- same-page Track이 실제로 긴 페이지를 이동하는지
+- 메뉴에서 커서가 정착 후 클릭하는지
 
-v6는 가능한 브라우저에서 30fps cadence로 프레임을 수동 요청하되 wall-clock 타임라인을 기준으로 진행합니다. 느린 장치에서는 뒤처진 프레임을 따라잡아 영상 시간과 오디오 시간이 따로 늘어나는 현상을 줄입니다.
+## 9. 프로젝트 초기화 관련
 
-Chrome / Edge 최신 버전을 권장합니다.
+기존 v5/v6 프로젝트 상태는 읽을 수 있지만, 이전 버전에서 이미 생성된 Scene은 옛 카메라 값이 남아 있을 수 있습니다.
 
-## 8. 배포 전 검증
-
-GitHub Actions에서도 아래 명령을 먼저 실행합니다.
-
-```bash
-node scripts/verify.mjs
-```
-
-검증 실패 시 Pages 배포가 중단됩니다.
+v7 품질을 보려면 기존 URL을 다시 넣고 Auto Director를 실행하거나 테스트 프로젝트를 초기화한 뒤 새로 생성하는 것을 권장합니다.

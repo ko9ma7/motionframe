@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0f18" />
   <meta name="color-scheme" content="dark" />
-  <title>MotionFrame Studio v6 — 사이트 흐름을 영상 문법으로 연출하는 Auto Director</title>
+  <title>MotionFrame Studio v7 — 사이트 요소를 연결해 임팩트 있는 영상 플로우로 만드는 Auto Director</title>
   <meta name="description" content="사이트 URL의 실제 DOM 위치와 링크 관계를 분석해 페이지별 설명·클릭·전환 흐름을 자동 기획하고, 모션·사운드를 편집해 WebM으로 만드는 GitHub Pages용 Auto Director." />
   <link rel="canonical" href="__SITE_URL__/" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
@@ -13,7 +13,7 @@
   <link rel="icon" href="./favicon-16x16.png" sizes="16x16" type="image/png" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <meta property="og:title" content="MotionFrame Studio v6 — 사이트 흐름을 영상 문법으로 연출하는 Auto Director" />
+  <meta property="og:title" content="MotionFrame Studio v7 — 사이트 요소를 연결해 임팩트 있는 영상 플로우로 만드는 Auto Director" />
   <meta property="og:description" content="실제 DOM 좌표와 링크 관계 기반 Auto Director, 페이지별 클릭 동작 편집, 모션 템플릿, 사운드와 WebM 렌더링." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="__SITE_URL__/" />
@@ -23,7 +23,7 @@
   <meta name="twitter:title" content="MotionFrame Studio" />
   <meta name="twitter:description" content="페이지 제목·섹션·메뉴·CTA의 실제 위치를 읽어 기본 연출 흐름을 만들고, 링크별 동작을 수정한 뒤 WebM으로 내보내세요." />
   <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
-  <link rel="stylesheet" href="./assets/styles.css?v=6.0.0" />
+  <link rel="stylesheet" href="./assets/styles.css?v=7.0.0" />
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MotionFrame Studio","applicationCategory":"MultimediaApplication","operatingSystem":"Web","url":"__SITE_URL__/","description":"사이트 URL의 실제 DOM 좌표와 링크 관계를 분석해 페이지 이동까지 포함한 기본 연출안을 만들고 WebM으로 렌더링하는 브라우저 Auto Director."}</script>
 </head>
 <body>
@@ -115,11 +115,20 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
 
     <section class="director-section" id="director" aria-labelledby="director-title">
       <div class="section-head director-head">
-        <div><p class="eyebrow">AUTO DIRECTOR</p><h2 id="director-title">페이지를 보고, 무엇을 어떻게 보여줄지 먼저 구성합니다.</h2><p class="section-subcopy">템플릿보다 먼저 콘텐츠 흐름을 결정합니다. 각 페이지에서 히어로·제품 화면·핵심 섹션을 고르고, 메뉴/버튼 클릭이 다음 URL로 자연스럽게 이어지도록 샷을 구성합니다. 카메라는 이동 → 정착 → 읽기 → 클릭 순으로 호흡을 갖도록 기본값이 설정됩니다.</p></div>
-        <div class="director-head-actions"><span id="directorSummary">0 pages · 0 beats</span><button class="secondary-button" id="rebuildDirectorButton" type="button">기본 연출 다시 만들기</button><button class="primary-button" id="applyDirectorButton" type="button">이 흐름으로 편집</button></div>
+        <div><p class="eyebrow">AUTO DIRECTOR · FLOW PLAN</p><h2 id="director-title">좌표가 아니라 “무엇을 → 어떻게 → 어디로”를 먼저 편집합니다.</h2><p class="section-subcopy">URL에서 읽은 제목·제품 화면·메뉴·버튼을 실제 이름으로 연결해 영상 흐름을 만듭니다. 아래 리스트가 영상의 원본 설계도이고, 장면/좌표는 이 플로우에서 자동 생성됩니다.</p></div>
+        <div class="director-head-actions"><span id="directorSummary">0 pages · 0 beats</span><button class="secondary-button" id="rebuildDirectorButton" type="button">사이트 기준으로 재구성</button><button class="primary-button" id="applyDirectorButton" type="button">플로우를 영상으로 적용</button></div>
       </div>
-      <div class="director-flow" id="directorFlow"></div>
-      <p class="director-note" id="directorNote">기본값: 페이지 전체 Establish → 히어로 → 제품 화면/핵심 기능 → 메뉴·버튼에 정착 → 커서 클릭 → 다음 페이지 Page Flow → 설명 → CTA → 안정적인 줌아웃. 같은 페이지 안에서는 불필요한 Crossfade를 사용하지 않습니다.</p>
+      <div class="director-layout">
+        <div class="director-plan-panel">
+          <div class="director-panel-title"><div><strong>연출 플로우</strong><span>위에서 아래 순서가 최종 영상 순서입니다.</span></div><span class="director-impact-badge">IMPACT 기본</span></div>
+          <div class="director-flow" id="directorFlow"></div>
+        </div>
+        <aside class="director-library-panel">
+          <div class="director-panel-title"><div><strong>사이트에서 찾은 요소</strong><span>빠진 제목·버튼은 +로 플로우에 추가하세요.</span></div></div>
+          <div id="directorLibrary" class="director-library"></div>
+        </aside>
+      </div>
+      <p class="director-note" id="directorNote">기본 문법: 전체 Reveal → Hero Punch-in → 제품/기능 Sweep 또는 Scroll Track → 메뉴·버튼에 카메라 정착 → 커서 이동·클릭 → 다음 페이지 Impact Flow → 새 페이지 Punch-in → CTA → Resolve. 같은 페이지는 한 화면 안에서 연속 카메라처럼 이어집니다.</p>
     </section>
 
     <section class="templates-section" id="templates" aria-labelledby="templates-title">
@@ -241,7 +250,7 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
     </section>
   </main>
 
-  <footer class="footer"><div><strong>MotionFrame Studio</strong><span>v6.0 · Cinematic Auto Director · Safe framing · Click-to-page flow · Audio/WebM</span></div><nav><a href="#capture">URL 분석</a><a href="#director">Auto Director</a><a href="#templates">모션 스타일</a><a href="#top">맨 위로</a></nav></footer>
+  <footer class="footer"><div><strong>MotionFrame Studio</strong><span>v7.0 · Cinematic Auto Director · Safe framing · Click-to-page flow · Audio/WebM</span></div><nav><a href="#capture">URL 분석</a><a href="#director">Auto Director</a><a href="#templates">모션 스타일</a><a href="#top">맨 위로</a></nav></footer>
 
   <div class="toast-root" id="toastRoot" aria-live="polite" aria-atomic="true"></div>
 
@@ -262,6 +271,6 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
       status.querySelector('p').textContent = 'JavaScript가 시작되지 않았습니다. 새로고침 후에도 계속되면 배포된 assets/app.js를 확인해 주세요.';
     }, 3500);
   </script>
-  <script type="module" src="./assets/app.js?v=6.0.0"></script>
+  <script type="module" src="./assets/app.js?v=7.0.0"></script>
 </body>
 </html>

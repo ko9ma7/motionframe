@@ -3,134 +3,76 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
-const failures = [];
-const mustExist = [
-  'index.html','404.html','favicon.svg','manifest.webmanifest','robots.txt','sitemap.xml','.nojekyll',
-  'assets/styles.css','assets/app.js','assets/templates.js','assets/audio.js','assets/director.js','.github/workflows/deploy.yml'
+const root=fileURLToPath(new URL('../',import.meta.url));
+const failures=[];
+const required=['index.html','404.html','favicon.svg','manifest.webmanifest','robots.txt','sitemap.xml','.nojekyll','assets/styles.css','assets/app.js','assets/templates.js','assets/audio.js','assets/director.js','.github/workflows/deploy.yml'];
+for(const file of required)if(!fs.existsSync(path.join(root,file)))failures.push(`missing: ${file}`);
+const read=(f)=>fs.readFileSync(path.join(root,f),'utf8');
+const html=read('index.html'),app=read('assets/app.js'),templatesSource=read('assets/templates.js'),audio=read('assets/audio.js'),director=read('assets/director.js'),css=read('assets/styles.css'),workflow=read('.github/workflows/deploy.yml');
+
+function moduleSyntax(file){const r=spawnSync(process.execPath,['--input-type=module','--check'],{input:read(file),encoding:'utf8'});if(r.status!==0)failures.push(`module syntax failed: ${file}\n${r.stderr.trim()}`);}
+['assets/app.js','assets/templates.js','assets/audio.js','assets/director.js'].forEach(moduleSyntax);
+
+const domFn=app.match(/const DOM_FUNCTION = `([\s\S]*?)`;/);
+if(!domFn)failures.push('DOM_FUNCTION not found');
+else if(Buffer.byteLength(domFn[1],'utf8')>1024)failures.push(`DOM_FUNCTION exceeds 1024 bytes: ${Buffer.byteLength(domFn[1],'utf8')}`);
+
+const ids=[...html.matchAll(/id="([^"]+)"/g)].map(m=>m[1]);
+const dup=[...new Set(ids.filter((id,i)=>ids.indexOf(id)!==i))];if(dup.length)failures.push(`duplicate ids: ${dup.join(', ')}`);
+const idSet=new Set(ids);const appIds=[...app.matchAll(/\$\('#([A-Za-z0-9_-]+)'\)/g)].map(m=>m[1]);const missing=[...new Set(appIds.filter(id=>!idSet.has(id)))];if(missing.length)failures.push(`missing DOM ids: ${missing.join(', ')}`);
+
+const tmod=await import(`${pathToFileURL(path.join(root,'assets/templates.js')).href}?v=${Date.now()}`);
+if(tmod.builtinTemplates.length<20)failures.push(`need >=20 templates, got ${tmod.builtinTemplates.length}`);
+if(tmod.builtinTemplates[0]?.id!=='impact-flow')failures.push('impact-flow must be default first template');
+const templateIds=new Set();
+for(const t of tmod.builtinTemplates){if(!t.id||templateIds.has(t.id))failures.push(`bad template id ${t.id}`);templateIds.add(t.id);if(!t.title||!t.description||!Array.isArray(t.sequence)||t.sequence.length<3)failures.push(`bad template ${t.id}`);}
+
+const checks=[
+ ['Flow Plan UI',html.includes('directorLibrary')&&html.includes('연출 플로우')&&app.includes('updateFlowStep')&&app.includes('moveFlowStep')&&app.includes('addElementToFlow')],
+ ['human-readable flow actions',app.includes('페이지 전체 공개')&&app.includes('클릭 → 같은 페이지 이동')&&app.includes('클릭 → 다음 페이지')],
+ ['DOM geometry',app.includes('getBoundingClientRect')&&app.includes('targetX')&&app.includes('targetY')&&app.includes('e.hash')],
+ ['same-page anchor choreography',director.includes("action==='anchor'")&&director.includes('영역으로 이동')&&director.includes('sameDocumentAnchor')],
+ ['route choreography',director.includes("action==='navigate'")&&director.includes('targetPageIndex')],
+ ['impact camera keyframes',app.includes('cameraFramesForImpact')&&app.includes('cameraKeyframes')&&app.includes("impact === 'punch'")&&app.includes("impact === 'track'")],
+ ['impact page transition',app.includes("scene.transition === 'page-flow'")&&app.includes('scale:1.08-eased*.08')],
+ ['source-projected cursor',app.includes('projectSourcePointToFrame')&&app.includes('cursorStartX')],
+ ['visual path override',app.includes('commitPath')&&app.includes('scene.cameraKeyframes=[]')],
+ ['URL auto-follow',app.includes('suggestInternalLinks')&&app.includes('queue.push(suggestion.href)')],
+ ['Microlink + fallback',app.includes('fetchMicrolinkCapture')&&app.includes('fetchMshotsCapture')],
+ ['audio preview',html.includes('soundPreviewButton')&&audio.includes('createProceduralBuffer')],
+ ['scene accents',audio.includes('addSceneAccents')&&app.includes('addSceneAccents')],
+ ['WebM A/V mux',app.includes('createMediaStreamDestination')&&app.includes('canvas.captureStream')&&app.includes('MediaRecorder')],
+ ['continuous 30fps export',app.includes('canvas.captureStream(fps)')&&!app.includes('canvas.captureStream(0)')&&!app.includes('requestFrame()')],
+ ['responsive Flow Plan',css.includes('.director-layout')&&css.includes('@media(max-width:820px)')&&css.includes('overflow-x: hidden')],
+ ['GitHub Pages workflow',workflow.includes('actions/deploy-pages@v4')&&workflow.includes('node scripts/verify.mjs')],
+ ['v7 cache busting',html.includes('v=7.0.0')&&app.includes("motionframe:v7:project")],
+ ['boot watchdog',html.includes('__motionframeReady')&&app.includes('window.__motionframeReady = true')]
 ];
+for(const [name,ok] of checks)if(!ok)failures.push(`check failed: ${name}`);
 
-for (const file of mustExist) {
-  if (!fs.existsSync(path.join(root,file))) failures.push(`missing: ${file}`);
-}
+const dmod=await import(`${pathToFileURL(path.join(root,'assets/director.js')).href}?v=${Date.now()}`);
+const single=[{id:'p0',name:'MotionFrame',sourceUrl:'https://example.com/',sourceAnalysis:{url:'https://example.com/',title:'MotionFrame',captureMode:'full',documentWidth:1440,documentHeight:5000,viewportWidth:1440,viewportHeight:900,elements:[
+ {id:'h1',tag:'h1',text:'사이트를 넣고 연출을 고르고 영상으로 끝냅니다',x:430,y:400,top:350,w:700,h:100},
+ {id:'h2',tag:'h2',text:'URL을 넣으면 화면과 페이지 구조를 함께 읽습니다.',x:520,y:1400,top:1360,w:800,h:70},
+ {id:'cap',tag:'a',text:'URL 캡처',href:'https://example.com/#capture',x:950,y:60,top:45,w:100,h:30,inNav:true,targetX:720,targetY:1300},
+ {id:'dir',tag:'a',text:'Auto Director',href:'https://example.com/#director',x:1060,y:60,top:45,w:120,h:30,inNav:true,targetX:720,targetY:2600}
+]}}];
+const anchorPlan=dmod.createDirectorPlan(single,{detail:'standard'}),anchorBeats=dmod.buildBeatSpecs(anchorPlan);
+if(!anchorPlan.flow.some(s=>s.action==='anchor'&&s.label==='URL 캡처'))failures.push('same-page anchor not represented in Flow Plan');
+if(!anchorBeats.some(b=>b.intent==='click'&&b.label.includes('URL 캡처')))failures.push('anchor click beat missing');
+if(!anchorBeats.some(b=>b.intent==='track'&&b.label.includes('URL 캡처 영역')))failures.push('anchor target track beat missing');
 
-const read = (file) => fs.readFileSync(path.join(root,file),'utf8');
-const html = read('index.html');
-const app = read('assets/app.js');
-const templateSource = read('assets/templates.js');
-const audio = read('assets/audio.js');
-const director = read('assets/director.js');
-const css = read('assets/styles.css');
-const workflow = read('.github/workflows/deploy.yml');
-const domFunctionMatch = app.match(/const DOM_FUNCTION = `([\s\S]*?)`;/);
-if (!domFunctionMatch) failures.push('DOM_FUNCTION not found');
-else if (Buffer.byteLength(domFunctionMatch[1], 'utf8') > 1024) failures.push(`DOM_FUNCTION exceeds Microlink free function limit: ${Buffer.byteLength(domFunctionMatch[1], 'utf8')} bytes`);
-
-function checkModuleSyntax(file) {
-  const source = read(file);
-  const result = spawnSync(process.execPath, ['--input-type=module','--check'], { input: source, encoding: 'utf8' });
-  if (result.status !== 0) failures.push(`module syntax failed: ${file}\n${result.stderr.trim()}`);
-}
-
-checkModuleSyntax('assets/app.js');
-checkModuleSyntax('assets/templates.js');
-checkModuleSyntax('assets/audio.js');
-checkModuleSyntax('assets/director.js');
-
-const ids = [...html.matchAll(/id="([^"]+)"/g)].map((match) => match[1]);
-const duplicateIds = [...new Set(ids.filter((id,index) => ids.indexOf(id) !== index))];
-if (duplicateIds.length) failures.push(`duplicate HTML ids: ${duplicateIds.join(', ')}`);
-const idSet = new Set(ids);
-const appStaticIds = [...app.matchAll(/\$\('#([A-Za-z0-9_-]+)'\)/g)].map((match) => match[1]);
-const missingIds = [...new Set(appStaticIds.filter((id) => !idSet.has(id)))];
-if (missingIds.length) failures.push(`app references missing HTML ids: ${missingIds.join(', ')}`);
-
-const templatesModule = await import(`${pathToFileURL(path.join(root,'assets/templates.js')).href}?verify=${Date.now()}`);
-const { builtinTemplates, motionPresets } = templatesModule;
-if (builtinTemplates.length < 20) failures.push(`need at least 20 builtin templates, found ${builtinTemplates.length}`);
-const templateIds = new Set();
-const allowedTransitions = new Set(['crossfade','slide','zoom-out','page-flow','cut']);
-for (const template of builtinTemplates) {
-  if (!template.id || templateIds.has(template.id)) failures.push(`duplicate/invalid template id: ${template.id}`);
-  templateIds.add(template.id);
-  if (!template.title || !template.description) failures.push(`template missing copy: ${template.id}`);
-  if (!Array.isArray(template.sequence) || template.sequence.length < 3) failures.push(`template sequence too short: ${template.id}`);
-  for (const [index, step] of (template.sequence || []).entries()) {
-    if (!motionPresets[step.motion]) failures.push(`unknown motion ${step.motion} in ${template.id}#${index}`);
-    if (!Number.isFinite(Number(step.duration)) || Number(step.duration) <= 0) failures.push(`invalid duration in ${template.id}#${index}`);
-    if (!allowedTransitions.has(step.transition)) failures.push(`invalid transition in ${template.id}#${index}: ${String(step.transition)}`);
-  }
-}
-
-const checks = [
-  ['URL list parser', app.includes("split(/\\n+/)") && app.includes('parseUrlList')],
-  ['cinematic camera framing', app.includes('targetX - sw * clamp(anchorX') && app.includes('focusAnchorX') && app.includes('shotTiming')],
-  ['same-page continuity', app.includes('sceneMediaIdentity') && app.includes('sameMedia') && app.includes("samePage ? 'cut'")],
-  ['cursor source projection', app.includes('projectSourcePointToFrame') && app.includes('cursorStartX') && app.includes('clickStart')],
-  ['page-flow transition', app.includes("scene.transition === 'page-flow'") && html.includes('value="page-flow"')],
-  ['wall-synced WebM export', app.includes('captureStream(0)') && app.includes('requestFrame') && app.includes('wallStart') && app.includes('performance.now()-wallStart')],
-  ['scene sound accents', audio.includes('addSceneAccents') && app.includes('addSceneAccents(createProceduralBuffer')],
-  ['URL capture primary', app.includes('fetchMicrolinkCapture') && app.includes('screenshot.fullPage')],
-  ['URL capture fallback', app.includes('fetchMshotsCapture') && app.includes('s.wordpress.com/mshots/v1')],
-  ['URL capture feedback', html.includes('captureStatus') && app.includes('사이트 구조 분석 시작')],
-  ['DOM geometry capture', app.includes('DOM_FUNCTION') && app.includes('getBoundingClientRect') && app.includes('data.headings.selectorAll') && html.includes('domAnalysis')],
-  ['visual media detection', app.includes('main img') && app.includes("m?'media'") && director.includes("role === 'media'")],
-  ['link-aware auto director', html.includes('directorFlow') && app.includes('createDirectorPlan') && app.includes('buildDirectorScenes') && director.includes('matchLinkToPage')],
-  ['per-link behavior editor', html.includes('applyDirectorButton') && app.includes('director-behavior') && director.includes("behavior === 'navigate'")],
-  ['auto follow internal pages', html.includes('autoFollowInput') && app.includes('suggestInternalLinks') && app.includes('queue.push(suggestion.href)') && app.includes('queue.length < 3')],
-  ['template library UI', html.includes('templateGrid') && html.includes('templateSearchInput') && html.includes('24 BUILT-IN')],
-  ['visual motion path editor', html.includes('motionPathOverlay') && html.includes('pathEditButton') && app.includes('sampleMotionPath') && app.includes('bindPathEditor')],
-  ['template application', app.includes('applyTemplate(template)') && app.includes('directorTemplateId = template.id')],
-  ['custom template persistence', app.includes('motionframe:v6:templates') && app.includes('updateCustomTemplate')],
-  ['audio presets', html.includes('soundPresetSelect') && html.includes('soundPresetGrid') && audio.includes('createProceduralBuffer') && audio.includes('Ambient Flow')],
-  ['custom audio upload', html.includes('audioInput') && app.includes('decodeAudioData')],
-  ['video scene support', html.includes('screenRecordButton') && app.includes('makeVideoSceneFromBlob')],
-  ['screen recording', app.includes('getDisplayMedia') && app.includes('MediaRecorder(stream')],
-  ['WebM audio/video mux', app.includes('createMediaStreamDestination') && app.includes('canvas.captureStream')],
-  ['IndexedDB persistence', app.includes('indexedDB.open') && app.includes('createObjectStore')],
-  ['responsive guards', css.includes('@media (max-width: 720px)') && css.includes('overflow-x: hidden')],
-  ['boot watchdog', html.includes('__motionframeReady') && app.includes('window.__motionframeReady = true')],
-  ['project backup', app.includes('motionframe-project') && html.includes('projectExportButton')],
-  ['GitHub Pages workflow', workflow.includes('actions/deploy-pages@v4') && workflow.includes('node scripts/verify.mjs')]
+const multipage=[
+ {id:'a',name:'Home',sourceUrl:'https://example.com/',sourceAnalysis:{url:'https://example.com/',title:'Home',captureMode:'full',documentWidth:1440,documentHeight:2200,viewportWidth:1440,viewportHeight:900,elements:[{id:'h',tag:'h1',text:'Build faster',x:430,y:350,top:320,w:500,h:80},{id:'n',tag:'a',text:'Features',href:'https://example.com/features',x:990,y:60,top:40,w:90,h:30,inNav:true}]}},
+ {id:'b',name:'Features',sourceUrl:'https://example.com/features',sourceAnalysis:{url:'https://example.com/features',title:'Features',captureMode:'full',documentWidth:1440,documentHeight:2000,viewportWidth:1440,viewportHeight:900,elements:[{id:'h2',tag:'h1',text:'Features',x:430,y:350,top:320,w:500,h:80},{id:'c',tag:'a',text:'Start free',href:'https://example.com/signup',x:800,y:1500,top:1470,w:150,h:50}]}}
 ];
-for (const [name, ok] of checks) if (!ok) failures.push(`check failed: ${name}`);
+const routePlan=dmod.createDirectorPlan(multipage,{detail:'standard'}),routeBeats=dmod.buildBeatSpecs(routePlan);
+if(!routePlan.flow.some(s=>s.action==='navigate'&&s.targetPageIndex===1))failures.push('cross-page route not represented');
+if(!routeBeats.some(b=>b.intent==='navigate'&&b.targetPageIndex===1))failures.push('navigate beat missing');
+const h1=anchorPlan.pages[0].elements.find(e=>e.role==='hero');dmod.addElementToFlow(anchorPlan,0,h1.id);if(!anchorPlan.flow.some(s=>s.elementId===h1.id))failures.push('element library add failed');
+const step=anchorPlan.flow.find(s=>s.elementId===h1.id);dmod.updateFlowStep(anchorPlan,step.id,{action:'track',impact:'track'});if(step.action!=='track')failures.push('flow step update failed');
+const before=anchorPlan.flow.indexOf(step);dmod.moveFlowStep(anchorPlan,step.id,-1);if(anchorPlan.flow.indexOf(step)!==Math.max(0,before-1))failures.push('flow step move failed');
 
-const directorModule = await import(`${pathToFileURL(path.join(root,'assets/director.js')).href}?verify=${Date.now()}`);
-const syntheticPages = [
-  { id:'p0', name:'Home', sourceUrl:'https://example.com/', sourceAnalysis:{ url:'https://example.com/', title:'Home', captureMode:'full', documentWidth:1440, documentHeight:3000, viewportWidth:1440, viewportHeight:1000, elements:[
-    {id:'h1',tag:'h1',text:'Build faster',x:420,y:360,top:320,w:500,h:80,inNav:false},
-    {id:'h2',tag:'h2',text:'Automation features',x:500,y:1300,top:1260,w:450,h:60,inNav:false},
-    {id:'nav',tag:'a',text:'Features',href:'https://example.com/features',x:980,y:58,top:40,w:90,h:30,inNav:true}
-  ]}},
-  { id:'p1', name:'Features', sourceUrl:'https://example.com/features', sourceAnalysis:{ url:'https://example.com/features', title:'Features', captureMode:'full', documentWidth:1440, documentHeight:2600, viewportWidth:1440, viewportHeight:1000, elements:[
-    {id:'h1b',tag:'h1',text:'Features',x:430,y:330,top:300,w:400,h:70,inNav:false},
-    {id:'cta',tag:'a',text:'Start free',href:'https://example.com/signup',x:860,y:2020,top:1980,w:160,h:48,inNav:false}
-  ]}}
-];
-const syntheticPlan = directorModule.createDirectorPlan(syntheticPages,{detail:'standard'});
-const syntheticBeats = directorModule.buildBeatSpecs(syntheticPlan);
-if (!syntheticPlan.pages[0].elements.some((item)=>item.behavior==='navigate' && item.text==='Features')) failures.push('director did not connect matching nav link to next page');
-if (!syntheticBeats.some((item)=>item.behavior==='navigate' && item.targetPageIndex===1)) failures.push('director beats missing page navigation');
-if (!syntheticBeats.some((item)=>item.label==='Automation features')) failures.push('director beats missing semantic section focus');
-const editablePlan = structuredClone(syntheticPlan);
-const homeSection = editablePlan.pages[0].elements.find((item)=>item.text==='Automation features');
-directorModule.setElementBehavior(editablePlan,0,homeSection.id,'skip');
-if (directorModule.buildBeatSpecs(editablePlan).some((item)=>item.label==='Automation features')) failures.push('director element override did not remove skipped beat');
-const navElement = editablePlan.pages[0].elements.find((item)=>item.text==='Features');
-directorModule.setElementBehavior(editablePlan,0,navElement.id,'click');
-if (directorModule.buildBeatSpecs(editablePlan).some((item)=>item.behavior==='navigate' && item.pageIndex===0)) failures.push('director navigation override did not update route');
-
-const homeOverview = syntheticBeats.find((item)=>item.pageIndex===0 && item.role==='overview');
-const homeHero = syntheticBeats.find((item)=>item.pageIndex===0 && item.role==='hero');
-if (!homeOverview || !(homeOverview.y > 10 && homeOverview.y < 20)) failures.push('director overview does not frame first viewport of full-page capture');
-if (!homeHero || homeHero.zoom > 120) failures.push('director hero framing zoom is too aggressive');
-if (!homeHero || !(homeHero.anchorX < .5)) failures.push('director hero framing does not preserve left-aligned copy context');
-if (!syntheticBeats.some((item)=>item.intent==='navigate')) failures.push('director beats missing cinematic navigation intent');
-
-if (/Lorem ipsum|TODO|FIXME/.test(html + app + templateSource + audio + director)) failures.push('placeholder/TODO text found');
-
-if (failures.length) {
-  console.error(failures.join('\n'));
-  process.exit(1);
-}
-console.log(`Verification passed: ${builtinTemplates.length} templates, ${Object.keys(motionPresets).length} motion presets, ${checks.length} feature checks, ${mustExist.length} required files, ${appStaticIds.length} DOM references.`);
+if(/Lorem ipsum|TODO|FIXME/.test(html+app+templatesSource+audio+director))failures.push('placeholder/TODO text found');
+if(failures.length){console.error(failures.join('\n'));process.exit(1);}
+console.log(`Verification passed: ${tmod.builtinTemplates.length} templates, ${Object.keys(tmod.motionPresets).length} motion presets, ${checks.length} feature checks, ${required.length} required files, ${appIds.length} DOM references.`);

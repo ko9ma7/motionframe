@@ -1,6 +1,6 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=6.0.0';
-import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=6.0.0';
-import { buildBeatSpecs, createDirectorPlan, planSummary, setElementBehavior, suggestInternalLinks } from './director.js?v=6.0.0';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=7.0.0';
+import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=7.0.0';
+import { addElementToFlow, buildBeatSpecs, createDirectorPlan, moveFlowStep, planSummary, removeFlowStep, setElementBehavior, suggestInternalLinks, updateFlowStep } from './director.js?v=7.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -15,14 +15,14 @@ function windowProgress(progress, start, end, easing = 'cinematic') {
   if (easing === 'linear') return p;
   return easeInOut(p);
 }
-const STORAGE_KEY = 'motionframe:v6:project';
-const LEGACY_STORAGE_KEY = 'motionframe:v5:project';
-const TEMPLATE_KEY = 'motionframe:v6:templates';
-const LEGACY_TEMPLATE_KEY = 'motionframe:v5:templates';
+const STORAGE_KEY = 'motionframe:v7:project';
+const LEGACY_STORAGE_KEYS = ['motionframe:v6:project','motionframe:v5:project'];
+const TEMPLATE_KEY = 'motionframe:v7:templates';
+const LEGACY_TEMPLATE_KEYS = ['motionframe:v6:templates','motionframe:v5:templates'];
 const DB_NAME = 'motionframe-studio-v5';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
-const DOM_FUNCTION = `({page})=>page.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,nav a,button,[role=button],a[href],main img,main video,[class*=mockup],[class*=preview],[class*=logo],[class*=brand]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,e:a.slice(0,120).map((n,i)=>{let r=n.getBoundingClientRect(),s=getComputedStyle(n),g=n.tagName.toLowerCase(),m=g==='img'||g==='video',t=(n.innerText||n.textContent||n.getAttribute('aria-label')||n.getAttribute('alt')||n.querySelector('img')?.alt||(m?'Product preview':'')).trim().replace(/\s+/g,' ').slice(0,100);if(!t||r.width<4||r.height<4||s.display==='none'||s.visibility==='hidden')return null;return{id:'e'+i,tag:g,role:m?'media':n.getAttribute('role')||'',text:t,href:n.href||'',x:r.left+r.width/2+scrollX,y:r.top+r.height/2+scrollY,top:r.top+scrollY,w:r.width,h:r.height,inNav:!!n.closest('nav'),brand:!!n.closest('header')&&!!n.matches('a,[class*=logo],[class*=brand]')}}).filter(Boolean)}})`;
+const DOM_FUNCTION = `({page:p})=>p.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,nav a,button,[role=button],a[href],main img,main video,[class*=mockup],[class*=preview]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,e:a.slice(0,120).map((e,i)=>{let r=e.getBoundingClientRect(),s=getComputedStyle(e),g=e.tagName.toLowerCase(),m=g==='img'||g==='video',k=e.hash&&document.getElementById(e.hash.slice(1)),z=k&&k.getBoundingClientRect(),t=(e.innerText||e.textContent||e.getAttribute('aria-label')||e.getAttribute('alt')||(m?'Product preview':'')).trim().replace(/\s+/g,' ').slice(0,100);if(!t||r.width<4||r.height<4||s.display==='none'||s.visibility==='hidden')return null;return{id:'e'+i,g,r:e.getAttribute('role')||'',t,u:e.href||'',x:r.left+r.width/2+scrollX,y:r.top+r.height/2+scrollY,o:r.top+scrollY,w:r.width,h:r.height,X:z?z.left+z.width/2+scrollX:0,Y:z?z.top+z.height/2+scrollY:0,n:!!e.closest('nav'),b:!!e.closest('header')&&g==='a'}}).filter(Boolean)}})`;
 
 let dbPromise;
 let state;
@@ -48,7 +48,7 @@ let pathDrawing = false;
 let pathDraft = [];
 let directorPlan = null;
 let directorBases = [];
-let directorTemplateId = 'website-story';
+let directorTemplateId = 'impact-flow';
 let lastFrameProjection = null;
 
 const canvas = $('#previewCanvas');
@@ -174,12 +174,12 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 6,
+    version: 7,
     aspect: '16:9',
     resolution: '1280x720',
     frameStyle: 'browser',
     directorPlan: null,
-    directorTemplateId: 'website-story',
+    directorTemplateId: 'impact-flow',
     audio: { preset: 'softCorporate', volume: 42, fade: true, assetKey: null, name: '' },
     scenes: [
       baseScene({ name: '전체 화면', imageUrl: demoSvg('Automation overview', '#8da5ff', 0), duration: 2.2, sourceType: 'demo', motionPreset: 'overview' }),
@@ -193,12 +193,12 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 6,
+    version: 7,
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
     frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
     directorPlan: project.directorPlan?.pages ? project.directorPlan : null,
-    directorTemplateId: project.directorTemplateId === 'web-story' ? 'website-story' : (typeof project.directorTemplateId === 'string' ? project.directorTemplateId : 'website-story'),
+    directorTemplateId: project.directorTemplateId === 'web-story' ? 'impact-flow' : (typeof project.directorTemplateId === 'string' ? project.directorTemplateId : 'impact-flow'),
     audio: {
       preset: normalizeAudioPreset(project.audio?.preset),
       volume: clamp(Number(project.audio?.volume ?? 42), 0, 100),
@@ -212,7 +212,7 @@ function sanitizeProject(project) {
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || LEGACY_STORAGE_KEYS.map((key)=>localStorage.getItem(key)).find(Boolean);
     const project = sanitizeProject(raw ? JSON.parse(raw) : null);
     if (!project.scenes.length) return demoProject();
     return project;
@@ -230,7 +230,7 @@ function saveState() {
 
 function loadCustomTemplates() {
   try {
-    const raw = localStorage.getItem(TEMPLATE_KEY) || localStorage.getItem(LEGACY_TEMPLATE_KEY) || '[]';
+    const raw = localStorage.getItem(TEMPLATE_KEY) || LEGACY_TEMPLATE_KEYS.map((key)=>localStorage.getItem(key)).find(Boolean) || '[]';
     const data = JSON.parse(raw);
     return Array.isArray(data) ? data : [];
   } catch { return []; }
@@ -284,17 +284,19 @@ function normalizePageAnalysis(payload, url, captureMode = 'full') {
   const fn = data.function?.isFulfilled ? data.function.value : null;
   const elements = Array.isArray(fn?.e) ? fn.e.map((item, index) => ({
     id: item.id || `e${index}`,
-    tag: String(item.tag || '').toLowerCase(),
-    role: String(item.role || ''),
-    text: String(item.text || '').replace(/\s+/g, ' ').trim(),
-    href: String(item.href || ''),
+    tag: String(item.tag || item.g || '').toLowerCase(),
+    role: String(item.role || item.r || ''),
+    text: String(item.text || item.t || '').replace(/\s+/g, ' ').trim(),
+    href: String(item.href || item.u || ''),
     x: Number(item.x || 0),
     y: Number(item.y || 0),
-    top: Number(item.top || item.y || 0),
+    top: Number(item.top || item.o || item.y || 0),
     w: Number(item.w || 0),
     h: Number(item.h || 0),
-    inNav: Boolean(item.inNav),
-    brand: Boolean(item.brand)
+    targetX: Number(item.targetX || item.X || 0),
+    targetY: Number(item.targetY || item.Y || 0),
+    inNav: Boolean(item.inNav || item.n),
+    brand: Boolean(item.brand || item.b)
   })).filter((item) => item.text) : [];
   const headingsFromElements = elements.filter((item) => ['h1','h2','h3'].includes(item.tag)).map((item) => item.text);
   const buttonsFromElements = elements.filter((item) => item.tag === 'button' || item.role === 'button' || (item.tag === 'a' && /button|btn|cta/i.test(item.role))).map((item) => item.text);
@@ -598,6 +600,38 @@ function sampleMotionPath(scene, progress) {
   return catmullPoint(p0,p1,p2,p3,local);
 }
 
+function keyframeEase(value, mode = 'cinematic') {
+  const t = clamp(value, 0, 1);
+  if (mode === 'linear') return t;
+  if (mode === 'out') return easeOutCubic(t);
+  if (mode === 'inout') return easeInOut(t);
+  if (mode === 'snap') return 1 - Math.pow(1 - t, 4);
+  return smoothStep(t);
+}
+
+function sampleCameraKeyframes(scene, progress) {
+  const frames = Array.isArray(scene.cameraKeyframes) ? scene.cameraKeyframes
+    .filter((frame) => Number.isFinite(Number(frame?.t)))
+    .map((frame) => ({ ...frame, t: clamp(Number(frame.t), 0, 1) }))
+    .sort((a,b)=>a.t-b.t) : [];
+  if (frames.length < 2) return null;
+  const p = clamp(progress,0,1);
+  if (p <= frames[0].t) return { ...frames[0] };
+  if (p >= frames.at(-1).t) return { ...frames.at(-1) };
+  let i=0;
+  while (i < frames.length - 2 && p > frames[i+1].t) i += 1;
+  const a=frames[i], b=frames[i+1];
+  const local=(p-a.t)/Math.max(.0001,b.t-a.t);
+  const t=keyframeEase(local,b.ease || 'cinematic');
+  return {
+    x:lerp(Number(a.x ?? scene.startX ?? 50),Number(b.x ?? a.x ?? scene.endX ?? 50),t),
+    y:lerp(Number(a.y ?? scene.startY ?? 50),Number(b.y ?? a.y ?? scene.endY ?? 50),t),
+    zoom:lerp(Number(a.zoom ?? scene.startZoom ?? 100),Number(b.zoom ?? a.zoom ?? scene.endZoom ?? 100),t),
+    anchorX:lerp(Number(a.anchorX ?? scene.startAnchorX ?? .5),Number(b.anchorX ?? a.anchorX ?? scene.focusAnchorX ?? .5),t),
+    anchorY:lerp(Number(a.anchorY ?? scene.startAnchorY ?? .5),Number(b.anchorY ?? a.anchorY ?? scene.focusAnchorY ?? .5),t)
+  };
+}
+
 async function drawScene(scene, progress, opacity = 1, transform = {}) {
   let img;
   if (scene.sourceType === 'video') {
@@ -614,21 +648,25 @@ async function drawScene(scene, progress, opacity = 1, transform = {}) {
   const moveStart = Number.isFinite(Number(scene.cameraMoveStart)) ? Number(scene.cameraMoveStart) : .08;
   const moveEnd = Number.isFinite(Number(scene.cameraMoveEnd)) ? Number(scene.cameraMoveEnd) : .68;
   const cameraP = windowProgress(progress, moveStart, moveEnd, scene.shotIntent === 'establish' ? 'cinematic' : 'settle');
-  const zoom = lerp(Number(scene.startZoom), Number(scene.endZoom), cameraP);
-  const focusPoint = sampleMotionPath(scene, cameraP);
+  const keyedCamera = sampleCameraKeyframes(scene, progress);
+  const zoom = keyedCamera?.zoom ?? lerp(Number(scene.startZoom), Number(scene.endZoom), cameraP);
+  const focusPoint = keyedCamera ? { x:keyedCamera.x, y:keyedCamera.y } : sampleMotionPath(scene, cameraP);
   const startAnchorX = Number(scene.startAnchorX ?? scene.focusAnchorX ?? .5);
   const startAnchorY = Number(scene.startAnchorY ?? scene.focusAnchorY ?? .5);
   const endAnchorX = Number(scene.focusAnchorX ?? .5);
   const endAnchorY = Number(scene.focusAnchorY ?? .5);
-  const anchorX = lerp(startAnchorX, endAnchorX, cameraP);
-  const anchorY = lerp(startAnchorY, endAnchorY, cameraP);
+  const anchorX = keyedCamera?.anchorX ?? lerp(startAnchorX, endAnchorX, cameraP);
+  const anchorY = keyedCamera?.anchorY ?? lerp(startAnchorY, endAnchorY, cameraP);
 
   const geom = frameGeometry(w,h);
   const contentY = geom.y + geom.chrome;
   const contentH = geom.h - geom.chrome;
   ctx.save();
   ctx.globalAlpha = opacity;
-  const scale = transform.scale ?? 1;
+  const impactOuterScale = scene.directorImpact && !['reveal','resolve'].includes(scene.directorImpact)
+    ? 1 + clamp((zoom - 100) / 60, 0, 1) * .035
+    : 1;
+  const scale = (transform.scale ?? 1) * impactOuterScale;
   const tx = transform.x ?? 0;
   const ty = transform.y ?? 0;
   ctx.translate(w/2 + tx, h/2 + ty); ctx.scale(scale, scale); ctx.translate(-w/2, -h/2);
@@ -704,10 +742,16 @@ async function renderAt(time) {
   $('#canvasMessage').hidden = true;
   const loc = locateTime(clamp(time,0,totalDuration()));
   const scene = state.scenes[loc.index];
+  if (state.frameStyle !== 'none' && scene?.directorRole) {
+    const hue = 214 + ((Number(scene.sourcePageIndex || 0) * 47) % 92);
+    const glow = ctx.createRadialGradient(w*.18,h*.08,0,w*.18,h*.08,Math.max(w,h)*.78);
+    glow.addColorStop(0,`hsla(${hue},78%,58%,.18)`); glow.addColorStop(.55,`hsla(${hue+54},72%,52%,.07)`); glow.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=glow;ctx.fillRect(0,0,w,h);
+  }
   const p = loc.duration ? loc.local / loc.duration : 0;
   const next = state.scenes[loc.index+1];
   const sameMedia = next && sceneMediaIdentity(scene) === sceneMediaIdentity(next);
-  const baseTransitionLength = scene.transition === 'page-flow' ? .48 : .38;
+  const baseTransitionLength = scene.transition === 'page-flow' ? .62 : .38;
   const transitionLength = Math.min(baseTransitionLength, loc.duration * .22);
   const transitionStart = 1 - transitionLength / Math.max(.001, loc.duration);
   const transP = !sameMedia && p > transitionStart && loc.index < state.scenes.length-1
@@ -725,8 +769,9 @@ async function renderAt(time) {
     await drawScene(next,0,transP,{ scale:.965+eased*.035 });
   } else if (scene.transition === 'page-flow') {
     const eased = easeInOut(transP);
-    await drawScene(scene,p,1-transP,{ scale:1-eased*.045, x:-w*.012*eased });
-    await drawScene(next,0,transP,{ scale:.97+eased*.03, x:w*.018*(1-eased) });
+    const outgoingOpacity = 1 - transP * .78;
+    await drawScene(scene,p,outgoingOpacity,{ scale:1-eased*.10, x:-w*.032*eased, y:h*.008*eased });
+    await drawScene(next,0,transP,{ scale:1.08-eased*.08, x:w*.055*(1-eased), y:-h*.012*(1-eased) });
   } else if (scene.transition === 'slide') {
     await drawScene(scene,p,1,{ x:-w*transP });
     await drawScene(next,0,1,{ x:w*(1-transP) });
@@ -884,7 +929,7 @@ function renderMotionPathOverlay() {
 function commitPath(points = pathDraft, type = pathEditMode) {
   const scene = selectedScene(); if (!scene || !Array.isArray(points) || points.length < 2) return;
   const cleaned = points.slice(0, 80).map((point)=>({x:Math.round(clamp(point.x,0,100)*10)/10,y:Math.round(clamp(point.y,0,100)*10)/10}));
-  scene.motionPath=cleaned; scene.pathType=type; scene.startX=cleaned[0].x; scene.startY=cleaned[0].y; scene.endX=cleaned[cleaned.length-1].x; scene.endY=cleaned[cleaned.length-1].y; scene.motionPreset='custom'; if(scene.cursorEnabled)scene.cursorFollowPath=true;
+  scene.motionPath=cleaned; scene.cameraKeyframes=[]; scene.pathType=type; scene.startX=cleaned[0].x; scene.startY=cleaned[0].y; scene.endX=cleaned[cleaned.length-1].x; scene.endY=cleaned[cleaned.length-1].y; scene.motionPreset='custom'; if(scene.cursorEnabled)scene.cursorFollowPath=true;
   saveState(); renderInspector(); updatePreview(); renderSceneCards();
 }
 
@@ -909,7 +954,7 @@ function bindPathEditor() {
 function setupSelectOptions() {
   $('#motionPresetSelect').innerHTML=Object.entries(motionPresets).map(([id,p])=>`<option value="${id}">${escapeHtml(p.label)}</option>`).join('');
   $('#soundPresetSelect').innerHTML=soundPresets.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join('');
-  const templates=currentTemplates(); $('#captureTemplateSelect').innerHTML=templates.filter(t=>t.category!=='custom').map(t=>`<option value="${t.id}" ${t.id==='website-story'?'selected':''}>${escapeHtml(t.title)}</option>`).join('');
+  const templates=currentTemplates(); $('#captureTemplateSelect').innerHTML=templates.filter(t=>t.category!=='custom').map(t=>`<option value="${t.id}" ${t.id==='impact-flow'?'selected':''}>${escapeHtml(t.title)}</option>`).join('');
 }
 
 function renderTemplateFilters() {
@@ -1038,81 +1083,108 @@ function saveCurrentTemplate(name,category='custom') {
 }
 
 
-function directorBehaviorLabel(value) {
-  return { focus:'설명 · 줌인', click:'클릭 연출', navigate:'클릭 → 페이지 이동', skip:'사용 안 함' }[value] || value;
+function directorRoleLabel(value) {
+  return { brand:'브랜드', hero:'H1 제목', media:'제품 화면', section:'섹션 제목', nav:'메뉴', cta:'CTA', link:'링크', control:'버튼', overview:'전체 화면', outro:'마무리' }[value] || value;
 }
 
-function directorRoleLabel(value) {
-  return { brand:'브랜드', hero:'제목', media:'제품 화면', section:'섹션', nav:'메뉴', cta:'CTA', link:'링크', control:'버튼' }[value] || value;
+function flowActionLabel(value) {
+  return { establish:'페이지 전체 공개', focus:'요소 집중', track:'확대 유지 · 따라가기', click:'커서 이동 · 클릭', anchor:'클릭 → 같은 페이지 이동', navigate:'클릭 → 다음 페이지', resolve:'마무리 줌아웃' }[value] || value;
+}
+
+function flowImpactLabel(value) {
+  return { reveal:'Reveal', punch:'Punch Zoom', sweep:'Sweep', track:'Scroll Track', click:'Cursor Impact', navigate:'Page Impact', resolve:'Resolve' }[value] || value;
 }
 
 function renderDirectorPlan() {
   const section = $('#director');
   const root = $('#directorFlow');
-  if (!section || !root) return;
+  const library = $('#directorLibrary');
+  if (!section || !root || !library) return;
+  section.hidden = false;
+
   if (!directorPlan?.pages?.length) {
-    section.hidden = false;
     $('#directorSummary').textContent = '분석 전 · 기본 연출 기준';
-    root.innerHTML = `<article class="director-page-card director-empty-card">
-      <div class="director-page-head"><span class="director-page-number">01</span><div><strong>URL을 분석하면 이 기준으로 자동 구성됩니다.</strong><small>페이지 구조와 링크를 읽은 뒤 실제 제목·메뉴·버튼으로 교체됩니다.</small></div><span class="director-detected">DEFAULT</span></div>
-      <div class="director-beats"><span class="director-beat overview">전체 화면</span><i>→</i><span class="director-beat">H1 제목</span><i>→</i><span class="director-beat">제품 화면</span><i>→</i><span class="director-beat">핵심 기능</span><i>→</i><span class="director-beat navigate">메뉴 클릭</span><i>→</i><span class="director-beat overview">다음 페이지</span><i>→</i><span class="director-beat click">CTA 클릭</span><i>→</i><span class="director-beat overview">줌아웃</span></div>
-    </article>`;
+    root.innerHTML = `<div class="flow-placeholder">
+      <div class="flow-step-row"><span class="flow-index">01</span><div><small>PAGE</small><strong>페이지 전체</strong></div><b>Reveal</b></div>
+      <div class="flow-step-row"><span class="flow-index">02</span><div><small>H1</small><strong>메인 제목</strong></div><b>Punch Zoom</b></div>
+      <div class="flow-step-row"><span class="flow-index">03</span><div><small>PRODUCT / FEATURE</small><strong>제품 화면 또는 핵심 기능</strong></div><b>Sweep / Track</b></div>
+      <div class="flow-step-row"><span class="flow-index">04</span><div><small>NAV / BUTTON</small><strong>메뉴로 이동 → 커서 클릭</strong></div><b>Cursor Impact</b></div>
+      <div class="flow-step-row"><span class="flow-index">05</span><div><small>NEXT PAGE</small><strong>다음 페이지 진입</strong></div><b>Page Impact</b></div>
+      <div class="flow-step-row"><span class="flow-index">06</span><div><small>CTA</small><strong>마지막 행동 → 전체 Resolve</strong></div><b>Resolve</b></div>
+    </div>`;
+    library.innerHTML = `<div class="director-library-empty"><strong>URL을 분석하면 실제 사이트 요소가 여기에 나타납니다.</strong><span>제목, 메뉴명, 버튼명, 링크 목적지와 화면 위치를 읽어 플로우를 자동 생성합니다.</span></div>`;
     return;
   }
-  section.hidden = false;
+
   const summary = planSummary(directorPlan);
-  $('#directorSummary').textContent = `${summary.pages} pages · ${summary.beats} beats · ${summary.navigations} page moves`;
+  $('#directorSummary').textContent = `${summary.pages} pages · ${summary.beats} flow steps · ${summary.navigations} page moves`;
   root.innerHTML = '';
-  directorPlan.pages.forEach((page, pageIndex) => {
-    const active = page.elements.filter((element) => element.behavior !== 'skip');
-    const card = document.createElement('article');
-    card.className = 'director-page-card';
-    const stepPreview = [
-      '<span class="director-beat overview">전체</span>',
-      ...active.slice(0, 6).map((element) => `<span class="director-beat ${element.behavior}">${escapeHtml(element.behavior === 'navigate' ? `클릭 · ${element.text}` : element.text)}</span>`)
-    ].join('<i>→</i>');
-    const targetOptions = directorPlan.pages.map((target, targetIndex) => `<option value="${targetIndex}">${targetIndex + 1}. ${escapeHtml(target.title)}</option>`).join('');
-    card.innerHTML = `
-      <div class="director-page-head">
-        <span class="director-page-number">${String(pageIndex + 1).padStart(2,'0')}</span>
-        <div><strong>${escapeHtml(page.title)}</strong><small>${escapeHtml(page.url)}</small></div>
-        <span class="director-detected">DOM ${page.detectedCount}</span>
+  const flow = directorPlan.flow || [];
+  flow.forEach((step, index) => {
+    const page = directorPlan.pages[step.pageIndex];
+    const element = step.elementId ? page?.elements?.find((item) => item.id === step.elementId) : null;
+    const row = document.createElement('article');
+    row.className = `flow-step-row action-${step.action} ${step.enabled === false ? 'disabled' : ''}`;
+    const pageOptions = directorPlan.pages.map((target, targetIndex) => `<option value="${targetIndex}" ${Number(step.targetPageIndex)===targetIndex?'selected':''}>${targetIndex + 1}. ${escapeHtml(target.title)}</option>`).join('');
+    const canNavigate = Boolean(element?.href) || ['nav','cta','link','control'].includes(element?.role);
+    const canAnchor = Number.isFinite(Number(element?.targetY)) && Number(element?.targetY) > 0;
+    row.innerHTML = `
+      <span class="flow-index">${String(index + 1).padStart(2,'0')}</span>
+      <div class="flow-subject">
+        <small>${escapeHtml(page?.title || 'Page')} · ${escapeHtml(directorRoleLabel(step.role))}</small>
+        <strong>${escapeHtml(step.label || element?.text || flowActionLabel(step.action))}</strong>
+        ${element?.href ? `<span>${escapeHtml((()=>{try{const u=new URL(element.href);return (u.pathname || '/') + (u.hash || '');}catch{return element.href;}})())}</span>` : `<span>${escapeHtml(flowActionLabel(step.action))}</span>`}
       </div>
-      <div class="director-beats">${stepPreview}</div>
-      <details class="director-actions-detail">
-        <summary>이 페이지의 요소별 연출 지정 <b>${page.elements.length}</b></summary>
-        <div class="director-elements"></div>
-      </details>`;
-    const elementsRoot = card.querySelector('.director-elements');
-    page.elements.forEach((element) => {
-      const row = document.createElement('div');
-      row.className = `director-element-row ${element.behavior !== 'skip' ? 'active' : ''}`;
-      const canNavigate = Boolean(element.href) || ['control','cta'].includes(element.role);
-      row.innerHTML = `
-        <div class="director-element-copy"><span>${escapeHtml(directorRoleLabel(element.role))}</span><strong>${escapeHtml(element.text)}</strong>${element.href ? `<small>${escapeHtml(new URL(element.href).pathname || '/')}</small>` : '<small>텍스트 요소</small>'}</div>
-        <select class="director-behavior" aria-label="${escapeHtml(element.text)} 동작">
-          <option value="focus" ${element.behavior==='focus'?'selected':''}>설명 · 줌인</option>
-          ${canNavigate ? `<option value="click" ${element.behavior==='click'?'selected':''}>클릭 연출</option><option value="navigate" ${element.behavior==='navigate'?'selected':''}>클릭 → 페이지 이동</option>` : ''}
-          <option value="skip" ${element.behavior==='skip'?'selected':''}>사용 안 함</option>
-        </select>
-        <select class="director-target" aria-label="이동할 페이지" ${element.behavior==='navigate'?'':'hidden'}>${targetOptions}</select>`;
-      const behavior = row.querySelector('.director-behavior');
-      const target = row.querySelector('.director-target');
-      target.value = String(Number.isInteger(element.targetPageIndex) ? element.targetPageIndex : Math.min(pageIndex + 1, directorPlan.pages.length - 1));
-      behavior.addEventListener('change', () => {
-        const nextBehavior = behavior.value;
-        setElementBehavior(directorPlan, pageIndex, element.id, nextBehavior, target.value);
-        state.directorPlan = directorPlan; saveState();
-        renderDirectorPlan();
-      });
-      target.addEventListener('change', () => {
-        setElementBehavior(directorPlan, pageIndex, element.id, 'navigate', target.value);
-        state.directorPlan = directorPlan; saveState();
-        renderDirectorPlan();
-      });
-      elementsRoot.append(row);
+      <label class="flow-control"><span>동작</span><select class="flow-action">
+        ${step.elementId ? `<option value="focus" ${step.action==='focus'?'selected':''}>요소 집중</option><option value="track" ${step.action==='track'?'selected':''}>확대 유지 · 따라가기</option>${canNavigate?`<option value="click" ${step.action==='click'?'selected':''}>커서 이동 · 클릭</option>${canAnchor?`<option value="anchor" ${step.action==='anchor'?'selected':''}>클릭 → 같은 페이지 이동</option>`:''}<option value="navigate" ${step.action==='navigate'?'selected':''}>클릭 → 다음 페이지</option>`:''}` : `<option value="establish" ${step.action==='establish'?'selected':''}>페이지 전체 공개</option><option value="resolve" ${step.action==='resolve'?'selected':''}>마무리 줌아웃</option>`}
+      </select></label>
+      <label class="flow-control"><span>연출</span><select class="flow-impact">
+        <option value="reveal" ${step.impact==='reveal'?'selected':''}>Reveal</option>
+        <option value="punch" ${step.impact==='punch'?'selected':''}>Punch Zoom</option>
+        <option value="sweep" ${step.impact==='sweep'?'selected':''}>Sweep</option>
+        <option value="track" ${step.impact==='track'?'selected':''}>Scroll Track</option>
+        <option value="click" ${step.impact==='click'?'selected':''}>Cursor Impact</option>
+        <option value="navigate" ${step.impact==='navigate'?'selected':''}>Page Impact</option>
+        <option value="resolve" ${step.impact==='resolve'?'selected':''}>Resolve</option>
+      </select></label>
+      <label class="flow-control flow-target" ${step.action==='navigate'?'':'hidden'}><span>이동</span><select>${pageOptions}</select></label>
+      <div class="flow-row-actions"><button type="button" class="flow-up" title="위로">↑</button><button type="button" class="flow-down" title="아래로">↓</button><button type="button" class="flow-remove" title="플로우에서 제외">×</button></div>`;
+
+    const action = row.querySelector('.flow-action');
+    const impact = row.querySelector('.flow-impact');
+    const targetWrap = row.querySelector('.flow-target');
+    const target = targetWrap?.querySelector('select');
+    action?.addEventListener('change', () => {
+      const nextAction = action.value;
+      let targetPageIndex = step.targetPageIndex;
+      if (nextAction === 'navigate' && !Number.isInteger(Number(targetPageIndex))) targetPageIndex = Math.min(step.pageIndex + 1, directorPlan.pages.length - 1);
+      updateFlowStep(directorPlan, step.id, { action: nextAction, targetPageIndex: nextAction === 'navigate' ? targetPageIndex : null, impact: nextAction === 'navigate' ? 'navigate' : (nextAction === 'click' || nextAction === 'anchor') ? 'click' : nextAction === 'track' ? 'track' : step.impact });
+      state.directorPlan = directorPlan; saveState(); renderDirectorPlan();
     });
-    root.append(card);
+    impact?.addEventListener('change', () => { updateFlowStep(directorPlan, step.id, { impact: impact.value }); state.directorPlan = directorPlan; saveState(); });
+    target?.addEventListener('change', () => { updateFlowStep(directorPlan, step.id, { action:'navigate', targetPageIndex:Number(target.value), impact:'navigate' }); state.directorPlan = directorPlan; saveState(); renderDirectorPlan(); });
+    row.querySelector('.flow-up')?.addEventListener('click', () => { moveFlowStep(directorPlan, step.id, -1); state.directorPlan=directorPlan; saveState(); renderDirectorPlan(); });
+    row.querySelector('.flow-down')?.addEventListener('click', () => { moveFlowStep(directorPlan, step.id, 1); state.directorPlan=directorPlan; saveState(); renderDirectorPlan(); });
+    row.querySelector('.flow-remove')?.addEventListener('click', () => { removeFlowStep(directorPlan, step.id); state.directorPlan=directorPlan; saveState(); renderDirectorPlan(); });
+    root.append(row);
+  });
+
+  library.innerHTML = '';
+  directorPlan.pages.forEach((page, pageIndex) => {
+    const details = document.createElement('details');
+    details.className = 'director-library-page';
+    if (pageIndex === 0) details.open = true;
+    details.innerHTML = `<summary><div><strong>${String(pageIndex + 1).padStart(2,'0')} · ${escapeHtml(page.title)}</strong><span>${escapeHtml(page.url)}</span></div><b>${page.detectedCount} DOM</b></summary><div class="director-library-items"></div>`;
+    const list = details.querySelector('.director-library-items');
+    page.elements.forEach((element) => {
+      const used = (directorPlan.flow || []).some((step) => step.pageIndex === pageIndex && step.elementId === element.id);
+      const item = document.createElement('div');
+      item.className = `director-library-item ${used ? 'used' : ''}`;
+      item.innerHTML = `<div><small>${escapeHtml(directorRoleLabel(element.role))}</small><strong>${escapeHtml(element.text)}</strong>${element.href?`<span>${escapeHtml((()=>{try{return new URL(element.href).pathname||'/';}catch{return element.href;}})())}</span>`:''}</div><button type="button" ${used?'disabled':''}>${used?'추가됨':'+'}</button>`;
+      item.querySelector('button')?.addEventListener('click', () => { addElementToFlow(directorPlan,pageIndex,element.id); state.directorPlan=directorPlan; saveState(); renderDirectorPlan(); });
+      list.append(item);
+    });
+    library.append(details);
   });
 }
 
@@ -1129,120 +1201,102 @@ function rebuildDirectorPlan() {
   location.hash = 'director';
 }
 
-function shotTiming(intent) {
-  if (intent === 'establish') return { duration:1.9, moveStart:.08, moveEnd:.86, cursorStart:.2, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
-  if (intent === 'arrive') return { duration:1.65, moveStart:.06, moveEnd:.58, cursorStart:.2, cursorEnd:.64, clickStart:.72, clickEnd:.84 };
-  if (intent === 'navigate') return { duration:2.15, moveStart:.05, moveEnd:.43, cursorStart:.20, cursorEnd:.62, clickStart:.68, clickEnd:.80 };
-  if (intent === 'click') return { duration:2.05, moveStart:.05, moveEnd:.48, cursorStart:.22, cursorEnd:.64, clickStart:.70, clickEnd:.82 };
-  if (intent === 'resolve') return { duration:1.6, moveStart:.06, moveEnd:.82, cursorStart:.2, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
-  return { duration:2.2, moveStart:.06, moveEnd:.60, cursorStart:.2, cursorEnd:.64, clickStart:.72, clickEnd:.84 };
+function shotTiming(intent, impact = '') {
+  const key = impact || intent;
+  if (intent === 'establish') return { duration:1.55, moveStart:.02, moveEnd:.72, cursorStart:.18, cursorEnd:.58, clickStart:.72, clickEnd:.84 };
+  if (intent === 'track' || key === 'track') return { duration:2.15, moveStart:.02, moveEnd:.82, cursorStart:.2, cursorEnd:.66, clickStart:.76, clickEnd:.86 };
+  if (intent === 'navigate') return { duration:1.75, moveStart:.02, moveEnd:.38, cursorStart:.18, cursorEnd:.58, clickStart:.64, clickEnd:.78 };
+  if (intent === 'click') return { duration:1.55, moveStart:.02, moveEnd:.36, cursorStart:.16, cursorEnd:.56, clickStart:.62, clickEnd:.76 };
+  if (intent === 'resolve') return { duration:1.45, moveStart:.04, moveEnd:.82, cursorStart:.2, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
+  return { duration:key === 'punch' ? 1.65 : 1.85, moveStart:.02, moveEnd:.70, cursorStart:.18, cursorEnd:.62, clickStart:.70, clickEnd:.82 };
+}
+
+function cameraFramesForImpact(impact, start, target) {
+  const base = (p, extra={}) => ({ x:p.x, y:p.y, zoom:p.zoom, anchorX:p.anchorX, anchorY:p.anchorY, ...extra });
+  if (impact === 'reveal') {
+    return [base({ ...target, zoom:Math.max(110,start.zoom) },{t:0}), base({ ...target, zoom:103 },{t:.54,ease:'out'}), base(target,{t:.78,ease:'out'}), base(target,{t:1})];
+  }
+  if (impact === 'punch') {
+    const overshoot={...target,zoom:Math.min(160,target.zoom+10)};
+    return [base(start,{t:0}),base({x:lerp(start.x,target.x,.72),y:lerp(start.y,target.y,.72),zoom:overshoot.zoom,anchorX:target.anchorX,anchorY:target.anchorY},{t:.46,ease:'snap'}),base(target,{t:.66,ease:'out'}),base(target,{t:1})];
+  }
+  if (impact === 'sweep') {
+    const dir=target.x>=start.x?1:-1;
+    const mid={x:clamp(lerp(start.x,target.x,.58)+dir*3.5,1,99),y:clamp(lerp(start.y,target.y,.58)-2,1,99),zoom:Math.min(155,Math.max(start.zoom,target.zoom)+5),anchorX:lerp(start.anchorX,target.anchorX,.7),anchorY:lerp(start.anchorY,target.anchorY,.7)};
+    return [base(start,{t:0}),base(mid,{t:.52,ease:'inout'}),base(target,{t:.82,ease:'out'}),base(target,{t:1})];
+  }
+  if (impact === 'track') {
+    const trackZoom=Math.min(154,Math.max(132,start.zoom,target.zoom));
+    const mid={x:clamp(lerp(start.x,target.x,.46)+(target.x>=start.x?2.2:-2.2),1,99),y:lerp(start.y,target.y,.46),zoom:trackZoom,anchorX:lerp(start.anchorX,target.anchorX,.5),anchorY:lerp(start.anchorY,target.anchorY,.5)};
+    return [base({...start,zoom:Math.max(start.zoom,trackZoom-4)},{t:0}),base(mid,{t:.46,ease:'inout'}),base({...target,zoom:trackZoom},{t:.82,ease:'inout'}),base({...target,zoom:Math.max(126,target.zoom)},{t:1,ease:'out'})];
+  }
+  if (impact === 'click' || impact === 'navigate') {
+    const settle={...target,zoom:Math.min(158,target.zoom+4)};
+    const pulse={...target,zoom:Math.min(160,target.zoom+7)};
+    return [base(start,{t:0}),base(settle,{t:.34,ease:'snap'}),base(target,{t:.54,ease:'out'}),base(pulse,{t:.70,ease:'out'}),base(target,{t:.84,ease:'out'}),base(target,{t:1})];
+  }
+  if (impact === 'resolve') {
+    return [base(start,{t:0}),base({...target,zoom:106},{t:.52,ease:'inout'}),base(target,{t:.84,ease:'out'}),base(target,{t:1})];
+  }
+  return [base(start,{t:0}),base(target,{t:.72,ease:'out'}),base(target,{t:1})];
 }
 
 function buildDirectorScenes() {
   if (!directorPlan?.pages?.length || !directorBases.length) return [];
   const template = currentTemplates().find((item) => item.id === directorTemplateId) || builtinTemplates[0];
-  const sequence = template.sequence?.length ? template.sequence : [{ motion:'focus', duration:2.2, transition:'crossfade' }];
   const beats = buildBeatSpecs(directorPlan);
   const scenes = [];
-  let previous = { pageIndex: -1, x: 50, y: 50, zoom: 100, anchorX:.5, anchorY:.5 };
+  const speed = template.category === 'fast' ? .78 : template.category === 'calm' ? 1.18 : 1;
+  let previous = { pageIndex:-1, x:50, y:50, zoom:100, anchorX:.5, anchorY:.5 };
 
   beats.forEach((beat, index) => {
-    const base = directorBases[beat.pageIndex];
-    if (!base) return;
-    const style = sequence[index % sequence.length];
-    const timing = shotTiming(beat.intent || 'focus');
+    const baseSceneSource = directorBases[beat.pageIndex];
+    if (!baseSceneSource) return;
+    const impact = beat.impact || ({ establish:'reveal', track:'track', navigate:'navigate', click:'click', resolve:'resolve' }[beat.intent] || (beat.role === 'media' ? 'sweep' : 'punch'));
+    const timing = shotTiming(beat.intent || 'focus', impact);
     const samePage = previous.pageIndex === beat.pageIndex;
     const target = {
-      x: clamp(Number(beat.x ?? 50), 1, 99),
-      y: clamp(Number(beat.y ?? 50), 1, 99),
-      zoom: clamp(Number(beat.zoom || 118), 100, 150),
-      anchorX: clamp(Number(beat.anchorX ?? .5), .18, .82),
-      anchorY: clamp(Number(beat.anchorY ?? .5), .18, .82)
+      x:clamp(Number(beat.x ?? 50),1,99), y:clamp(Number(beat.y ?? 50),1,99), zoom:clamp(Number(beat.zoom || 132),100,160),
+      anchorX:clamp(Number(beat.anchorX ?? .5),.18,.82), anchorY:clamp(Number(beat.anchorY ?? .5),.16,.84)
     };
-
     let start = samePage
-      ? { x:previous.x, y:previous.y, zoom:previous.zoom, anchorX:previous.anchorX, anchorY:previous.anchorY }
-      : { x:target.x, y:target.y, zoom:beat.intent === 'establish' ? 104 : 103, anchorX:target.anchorX, anchorY:target.anchorY };
+      ? { x:previous.x,y:previous.y,zoom:previous.zoom,anchorX:previous.anchorX,anchorY:previous.anchorY }
+      : { x:target.x,y:target.y,zoom:beat.intent === 'establish' ? 112 : 106,anchorX:target.anchorX,anchorY:target.anchorY };
 
-    if (beat.intent === 'establish' || beat.intent === 'arrive') {
-      start = { ...start, x:target.x, y:target.y, zoom:beat.intent === 'establish' ? 104 : 103 };
-      target.zoom = 100;
-      target.anchorX = .5;
-      target.anchorY = .5;
+    if (beat.intent === 'establish') {
+      start={...target,zoom:112,anchorX:.5,anchorY:.5}; target.zoom=100; target.anchorX=.5; target.anchorY=.5;
     }
     if (beat.intent === 'resolve') {
-      start = samePage ? start : { ...start, zoom:108 };
-      target.zoom = 100;
-      target.anchorX = .5;
-      target.anchorY = .5;
+      start=samePage?start:{...target,zoom:118}; target.zoom=100;target.anchorX=.5;target.anchorY=.5;
     }
 
-    const navigate = beat.behavior === 'navigate';
-    const clickable = navigate || beat.behavior === 'click';
-    const distance = Math.hypot(target.x - start.x, target.y - start.y);
-    const mid = {
-      x: clamp((start.x + target.x) / 2 + (index % 2 ? 1.8 : -1.8), 1, 99),
-      y: clamp((start.y + target.y) / 2 + (target.y > start.y ? 1.2 : -1.2), 1, 99)
-    };
-    const motionPath = distance > 14 ? [{x:start.x,y:start.y}, mid, {x:target.x,y:target.y}] : [{x:start.x,y:start.y},{x:target.x,y:target.y}];
-    const scene = structuredClone(base);
-    scene.id = createId('scene');
-    const label = navigate ? `클릭 · ${beat.label}` : beat.label;
-    const styleScale = clamp(Number(style.duration || 2.2) / 2.2, .88, 1.12);
-    const duration = clamp(timing.duration * styleScale, 1.35, 2.7);
-    const cursorStart = {
-      x: clamp(target.x + (target.x < 50 ? 11 : -11), 2, 98),
-      y: clamp(target.y + (target.y < 60 ? 6 : -6), 2, 98)
-    };
+    const clickable = beat.behavior === 'click' || beat.behavior === 'navigate';
+    const cursorStart={x:clamp(target.x+(target.x<50?14:-14),2,98),y:clamp(target.y+(target.y<55?8:-8),2,98)};
+    const cameraKeyframes=cameraFramesForImpact(impact,start,target);
+    const distance=Math.hypot(target.x-start.x,target.y-start.y);
+    const motionPath=distance>10?[{x:start.x,y:start.y},{x:clamp(lerp(start.x,target.x,.5)+(index%2?2.5:-2.5),1,99),y:lerp(start.y,target.y,.5)},{x:target.x,y:target.y}]:[{x:start.x,y:start.y},{x:target.x,y:target.y}];
+    const scene=structuredClone(baseSceneSource); scene.id=createId('scene');
+    const requestedDuration=Number(beat.duration || 0);
+    const duration=clamp((requestedDuration || timing.duration)*speed,1.05,3.5);
+    const roleMotion=beat.intent==='establish'||beat.intent==='resolve'?'overview':clickable?'cursorChase':impact==='track'?'scrollDown':impact==='sweep'?'diagonal':'snapDetail';
+    const label=beat.behavior==='navigate'?`클릭 · ${beat.label}`:beat.label;
 
-    const roleMotion = beat.intent === 'establish' || beat.intent === 'arrive' || beat.intent === 'resolve'
-      ? 'overview'
-      : clickable ? 'cursorChase' : (style.motion || 'focus');
-
-    scenes.push(hydrateMotion(scene, roleMotion, {
-      id: scene.id,
-      name: label,
-      duration,
-      transition: navigate ? 'page-flow' : (samePage ? 'cut' : (style.transition || 'crossfade')),
-      shotIntent: beat.intent || (clickable ? 'click' : 'focus'),
-      cameraMoveStart: timing.moveStart,
-      cameraMoveEnd: timing.moveEnd,
-      cursorMoveStart: timing.cursorStart,
-      cursorMoveEnd: timing.cursorEnd,
-      clickStart: timing.clickStart,
-      clickEnd: timing.clickEnd,
-      startX: start.x,
-      startY: start.y,
-      endX: target.x,
-      endY: target.y,
-      startZoom: start.zoom,
-      endZoom: target.zoom,
-      startAnchorX: start.anchorX,
-      startAnchorY: start.anchorY,
-      focusAnchorX: target.anchorX,
-      focusAnchorY: target.anchorY,
-      motionPath,
-      pathType: motionPath.length > 2 ? 'curve' : 'straight',
-      cursorEnabled: clickable,
-      cursorFollowPath: false,
-      cursorStartX: cursorStart.x,
-      cursorStartY: cursorStart.y,
-      cursorX: target.x,
-      cursorY: target.y,
-      directorRole: beat.role,
-      directorBehavior: beat.behavior,
-      directorIntent: beat.intent || '',
-      directorHref: beat.href || '',
-      directorTargetPageIndex: beat.targetPageIndex ?? null,
-      sourcePageIndex: beat.pageIndex
+    scenes.push(hydrateMotion(scene,roleMotion,{
+      id:scene.id,name:label,duration,
+      transition:beat.behavior==='navigate'?'page-flow':'cut',
+      shotIntent:beat.intent||'focus',impactStyle:impact,cameraKeyframes,
+      cameraMoveStart:timing.moveStart,cameraMoveEnd:timing.moveEnd,cursorMoveStart:timing.cursorStart,cursorMoveEnd:timing.cursorEnd,clickStart:timing.clickStart,clickEnd:timing.clickEnd,
+      startX:start.x,startY:start.y,endX:target.x,endY:target.y,startZoom:start.zoom,endZoom:target.zoom,startAnchorX:start.anchorX,startAnchorY:start.anchorY,focusAnchorX:target.anchorX,focusAnchorY:target.anchorY,
+      motionPath,pathType:motionPath.length>2?'curve':'straight',cursorEnabled:clickable,cursorFollowPath:false,cursorStartX:cursorStart.x,cursorStartY:cursorStart.y,cursorX:target.x,cursorY:target.y,
+      directorRole:beat.role,directorBehavior:beat.behavior,directorIntent:beat.intent||'',directorImpact:impact,directorHref:beat.href||'',directorTargetPageIndex:beat.targetPageIndex??null,directorFlowStepId:beat.flowStepId||'',sourcePageIndex:beat.pageIndex
     }));
-
-    previous = { pageIndex:beat.pageIndex, x:target.x, y:target.y, zoom:target.zoom, anchorX:target.anchorX, anchorY:target.anchorY };
+    previous={pageIndex:beat.pageIndex,x:target.x,y:target.y,zoom:target.zoom,anchorX:target.anchorX,anchorY:target.anchorY};
   });
-  state.aspect = template.aspect || state.aspect;
-  state.frameStyle = template.frameStyle || state.frameStyle;
-  if (template.audioPreset) state.audio.preset = normalizeAudioPreset(template.audioPreset);
-  return scenes.slice(0, 28);
+
+  state.aspect=template.aspect||state.aspect;
+  state.frameStyle=template.frameStyle||state.frameStyle;
+  if(template.audioPreset)state.audio.preset=normalizeAudioPreset(template.audioPreset);
+  return scenes.slice(0,36);
 }
 
 async function applyDirectorPlan() {
@@ -1428,7 +1482,7 @@ async function captureUrl(asStory) {
     const isDemo = state.scenes.length && state.scenes.every((scene) => scene.sourceType === 'demo');
     if (asStory) {
       directorBases = bases;
-      directorTemplateId = $('#captureTemplateSelect').value || 'website-story';
+      directorTemplateId = $('#captureTemplateSelect').value || 'impact-flow';
       directorPlan = createDirectorPlan(bases, { detail: $('#directorDetailSelect').value || 'standard' });
       state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId;
       renderDirectorPlan();
@@ -1606,14 +1660,8 @@ async function exportWebM(){
   try{
     await prewarmExportMedia();
     const fps=30;
-    let videoStream=canvas.captureStream(0);
-    let videoTrack=videoStream.getVideoTracks()[0];
-    let manualFrames=Boolean(videoTrack?.requestFrame);
-    if(!manualFrames){
-      videoStream.getTracks().forEach((track)=>track.stop());
-      videoStream=canvas.captureStream(fps);
-      videoTrack=videoStream.getVideoTracks()[0];
-    }
+    const videoStream=canvas.captureStream(fps);
+    const videoTrack=videoStream.getVideoTracks()[0];
     const tracks=[videoTrack];
     const total=totalDuration();
     if(state.audio.preset!=='none'){
@@ -1646,7 +1694,6 @@ async function exportWebM(){
       const elapsed=Math.min((performance.now()-wallStart)/1000,total);
       currentTime=elapsed;
       await renderAt(elapsed);
-      if(manualFrames) videoTrack.requestFrame();
       const percent=total?Math.min(100,Math.round(elapsed/total*100)):100;
       $('#exportProgress').style.width=`${percent}%`;
       $('#exportStatus').textContent=`렌더링 중 · ${percent}%`;
@@ -1661,7 +1708,6 @@ async function exportWebM(){
     }
     currentTime=total;
     await renderAt(total);
-    if(manualFrames) videoTrack.requestFrame();
     await new Promise((resolve)=>setTimeout(resolve,90));
     try{audioSource?.stop();}catch{}
     recorder.stop();
@@ -1695,7 +1741,7 @@ function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const type=
 async function exportProject(){
   const keys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; const assets={};
   for(const key of keys){const blob=await getAsset(key);if(blob)assets[key]={type:blob.type,data:await blobToDataUrl(blob)};}
-  downloadJson({kind:'motionframe-project',version:6,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
+  downloadJson({kind:'motionframe-project',version:7,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
 }
 
 async function importProjectFile(file){
@@ -1707,14 +1753,14 @@ async function importTemplateFile(file){
 }
 
 async function resetProject(){
-  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='website-story';selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
+  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='impact-flow';selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
 }
 
 function bindInspector(){
   $('#sceneNameInput').addEventListener('input',e=>updateSelectedScene({name:e.target.value},false)); $('#sceneNameInput').addEventListener('change',()=>renderAll());
   $('#durationInput').addEventListener('change',e=>updateSelectedScene({duration:clamp(Number(e.target.value)||2.4,.8,15)})); $('#transitionSelect').addEventListener('change',e=>updateSelectedScene({transition:e.target.value}));
-  $('#motionPresetSelect').addEventListener('change',e=>{const scene=selectedScene();if(!scene)return;const next=hydrateMotion(scene,e.target.value,{motionPreset:e.target.value,id:scene.id,name:scene.name,motionPath:[]});Object.assign(scene,next);saveState();renderAll();});
-  ['startZoom','endZoom','startX','startY','endX','endY','cursorX','cursorY'].forEach(key=>{const input=$(`#${key}Input`);input.addEventListener('input',e=>{const scene=selectedScene();if(!scene)return;scene[key]=Number(e.target.value);scene.motionPreset='custom';if(['startX','startY','endX','endY'].includes(key))scene.motionPath=[];const out=$(`#${key}Output`);if(out)out.textContent=`${e.target.value}%`;saveState();updatePreview();renderSceneCards();});});
+  $('#motionPresetSelect').addEventListener('change',e=>{const scene=selectedScene();if(!scene)return;const next=hydrateMotion(scene,e.target.value,{motionPreset:e.target.value,id:scene.id,name:scene.name,motionPath:[],cameraKeyframes:[]});Object.assign(scene,next);saveState();renderAll();});
+  ['startZoom','endZoom','startX','startY','endX','endY','cursorX','cursorY'].forEach(key=>{const input=$(`#${key}Input`);input.addEventListener('input',e=>{const scene=selectedScene();if(!scene)return;scene[key]=Number(e.target.value);scene.motionPreset='custom';scene.cameraKeyframes=[];if(['startX','startY','endX','endY'].includes(key))scene.motionPath=[];const out=$(`#${key}Output`);if(out)out.textContent=`${e.target.value}%`;saveState();updatePreview();renderSceneCards();});});
   $('#cursorEnabledInput').addEventListener('change',e=>updateSelectedScene({cursorEnabled:e.target.checked,cursorFollowPath:e.target.checked&&effectiveMotionPath(selectedScene()).length>=2,motionPreset:'custom'}));
 }
 
@@ -1751,11 +1797,16 @@ async function init(){
   state=loadState();
   selectedSceneId=state.scenes[0]?.id||null;
   directorPlan=state.directorPlan?.pages ? state.directorPlan : null;
-  directorTemplateId=state.directorTemplateId || 'website-story';
+  directorTemplateId=state.directorTemplateId || 'impact-flow';
   if(directorPlan){
     const grouped=new Map();
     state.scenes.filter((scene)=>Number.isInteger(scene.sourcePageIndex)).forEach((scene)=>{if(!grouped.has(scene.sourcePageIndex))grouped.set(scene.sourcePageIndex,structuredClone(scene));});
     directorBases=[...grouped.entries()].sort((a,b)=>a[0]-b[0]).map(([,scene])=>scene);
+    if ((!Array.isArray(directorPlan.flow) || !directorPlan.flow.length) && directorBases.length) {
+      directorPlan=createDirectorPlan(directorBases,{detail:directorPlan.detail || 'standard'});
+      state.directorPlan=directorPlan;
+      saveState();
+    }
   }
   setupSelectOptions();
   renderTemplateFilters();

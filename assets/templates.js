@@ -22,9 +22,9 @@ const s = (motion, duration, transition = 'crossfade', override = {}) => ({ moti
 
 export const builtinTemplates = [
   {
-    id: 'website-story', title: 'Website Story', category: 'website', badge: '추천', motion: 'scroll', durationLabel: '12.7 sec', audioPreset: 'softCorporate',
-    description: 'Hero에서 시작해 주요 섹션을 훑고 마지막 CTA에서 줌아웃하는 가장 범용적인 사이트 소개 연출.',
-    sequence: [s('overview',2.2),s('scrollDown',3.0,'slide',{startY:12,endY:54}),s('focus',2.5),s('featureToCta',2.5),s('pullout',2.5,'zoom-out')]
+    id: 'impact-flow', title: 'Impact Product Flow', category: 'website', badge: '기본', motion: 'zoom', durationLabel: 'Auto', audioPreset: 'launchDrive',
+    description: '전체 Reveal → 강한 Punch-in → 확대 상태 Scroll Track → 커서 클릭 → 다음 페이지 Impact 전환을 기본으로 쓰는 자동 연출 스타일.',
+    sequence: [s('overview',1.5,'cut'),s('snapDetail',1.75,'cut'),s('scrollDown',2.15,'cut',{startY:22,endY:62,startZoom:138,endZoom:140}),s('cursorChase',1.75,'page-flow'),s('pullout',1.45,'cut')]
   },
   {
     id: 'hero-dive', title: 'Hero Dive', category: 'website', badge: 'Hero', motion: 'zoom', durationLabel: '8.8 sec', audioPreset: 'ambientFlow',
