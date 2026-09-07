@@ -5,26 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0f18" />
   <meta name="color-scheme" content="dark" />
-  <title>MotionFrame Studio v3 — URL에서 연출 영상까지</title>
-  <meta name="description" content="사이트 URL, 화면 캡처, 이미지로 장면을 만들고 줌·팬·커서·전환·사운드 템플릿을 적용해 WebM 쇼케이스 영상을 제작하는 GitHub Pages용 정적 웹앱." />
+  <title>MotionFrame Studio v4 — URL에서 연출 영상까지</title>
+  <meta name="description" content="사이트 URL의 화면과 페이지 구조를 함께 분석하고, 시각적 모션 패스와 사운드를 적용해 WebM 쇼케이스 영상을 제작하는 GitHub Pages용 브라우저 편집기." />
   <link rel="canonical" href="__SITE_URL__/" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="icon" href="./favicon-32x32.png" sizes="32x32" type="image/png" />
   <link rel="icon" href="./favicon-16x16.png" sizes="16x16" type="image/png" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <meta property="og:title" content="MotionFrame Studio v3 — URL에서 연출 영상까지" />
-  <meta property="og:description" content="URL 캡처, 24개 기본 연출 템플릿, 사운드 트랙, WebM 렌더링을 한 곳에서." />
+  <meta property="og:title" content="MotionFrame Studio v4 — URL에서 연출 영상까지" />
+  <meta property="og:description" content="DOM 구조 기반 URL 장면 구성, 24개 연출 템플릿, 직접 그리는 모션 패스, 사운드와 WebM 렌더링을 한 곳에서." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="__SITE_URL__/" />
   <meta property="og:image" content="__SITE_URL__/og-image.png" />
   <meta property="og:site_name" content="MotionFrame Studio" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="MotionFrame Studio" />
-  <meta name="twitter:description" content="사이트 URL을 넣고, 템플릿을 적용하고, 사운드까지 더해 WebM으로 내보내세요." />
+  <meta name="twitter:description" content="사이트 URL의 제목·헤딩·CTA 흐름을 장면으로 만들고, 직접 경로를 그려 사운드와 함께 WebM으로 내보내세요." />
   <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
-  <link rel="stylesheet" href="./assets/styles.css?v=3.0.0" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MotionFrame Studio","applicationCategory":"MultimediaApplication","operatingSystem":"Web","url":"__SITE_URL__/","description":"사이트 URL과 이미지에서 줌, 팬, 커서, 전환, 사운드를 적용한 WebM 쇼케이스 영상을 만드는 브라우저 편집기."}</script>
+  <link rel="stylesheet" href="./assets/styles.css?v=4.0.0" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MotionFrame Studio","applicationCategory":"MultimediaApplication","operatingSystem":"Web","url":"__SITE_URL__/","description":"사이트 URL의 화면과 페이지 구조를 분석하고 시각적 모션 패스, 커서, 전환, 사운드를 적용한 WebM 쇼케이스 영상을 만드는 브라우저 편집기."}</script>
 </head>
 <body>
   <a class="skip-link" href="#studio">편집기로 바로 이동</a>
@@ -75,8 +75,8 @@
 
     <section class="capture-section" id="capture" aria-labelledby="capture-title">
       <div class="section-head">
-        <div><p class="eyebrow">CAPTURE</p><h2 id="capture-title">URL 하나로 첫 시퀀스를 만드세요.</h2></div>
-        <p>공개 웹사이트는 외부 브라우저 캡처 API를 통해 가져옵니다. 한 번의 전체 페이지 캡처를 여러 장면으로 분해해 움직임을 만들 수 있어 무료 요청량을 아낍니다.</p>
+        <div><p class="eyebrow">CAPTURE + STRUCTURE</p><h2 id="capture-title">URL을 넣으면 화면과 페이지 구조를 함께 읽습니다.</h2></div>
+        <p>캡처 이미지만 쓰지 않습니다. 페이지 제목, 주요 헤딩, CTA/버튼 텍스트를 함께 분석해 장면 이름과 기본 흐름을 자동 구성합니다.</p>
       </div>
       <div class="capture-card">
         <div class="url-builder">
@@ -100,7 +100,8 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
             <button class="secondary-button" id="imageUploadButton" type="button">이미지·영상 추가</button>
             <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4" multiple hidden />
           </div>
-          <p class="helper" id="captureHelper">URL은 한 줄에 하나씩 입력할 수 있습니다. Ctrl/⌘ + Enter로 바로 쇼릴을 만들 수 있습니다. 공개 사이트는 Microlink를 우선 사용하고 실패 시 mShots로 한 번 더 시도합니다. 로그인된 서비스·데스크톱 프로그램은 화면 녹화를 사용하세요.</p>
+          <p class="helper" id="captureHelper">URL은 한 줄에 하나씩 입력할 수 있습니다. Ctrl/⌘ + Enter로 바로 쇼릴을 만들 수 있습니다. Microlink 캡처에서는 페이지 제목·h1/h2/h3·CTA/버튼 텍스트를 함께 읽어 기본 장면 흐름을 만듭니다. 구조 분석이 불가능하면 캡처 기반 흐름으로 자동 전환합니다.</p>
+          <div class="dom-analysis" id="domAnalysis" hidden><strong>페이지 구조 분석</strong><div id="domAnalysisChips"></div></div>
         </div>
         <div class="capture-status" id="captureStatus" role="status" aria-live="polite">
           <span class="status-dot"></span><div><strong>준비됨</strong><p>URL을 입력하거나 기존 화면을 가져와 시작하세요.</p></div>
@@ -110,7 +111,7 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
 
     <section class="templates-section" id="templates" aria-labelledby="templates-title">
       <div class="section-head">
-        <div><p class="eyebrow">MOTION TEMPLATES · 24 BUILT-IN</p><h2 id="templates-title">기본 연출 24개를 바로 적용하고, 원하는 만큼 수정하세요.</h2><p class="section-subcopy">Website · Product · Cursor · Fast/Social · Calm · Mobile 용도를 나눠 준비했습니다. 아직 URL을 넣지 않았어도 템플릿을 누르면 샘플 장면으로 즉시 확인할 수 있습니다.</p></div>
+        <div><p class="eyebrow">MOTION PRESETS · 24 BUILT-IN</p><h2 id="templates-title">템플릿은 작게 훑고, 바로 적용하세요.</h2><p class="section-subcopy">한 화면을 크게 차지하지 않도록 가로형 라이브러리로 줄였습니다. 검색·분류 후 카드를 눌러 즉시 적용하고, 필요하면 복제해 내 템플릿으로 저장할 수 있습니다.</p></div>
         <div class="template-head-actions">
           <button class="secondary-button" id="saveTemplateButton" type="button">현재 연출 저장</button>
           <button class="secondary-button" id="importTemplateButton" type="button">템플릿 가져오기</button>
@@ -154,7 +155,21 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
 
         <section class="center-stage">
           <div class="preview-head"><div><p class="eyebrow">PREVIEW</p><h3>실시간 미리보기</h3></div><span id="previewBadge">720p · 30fps</span></div>
-          <div class="canvas-shell" id="canvasShell"><canvas id="previewCanvas" width="1280" height="720"></canvas><div class="canvas-message" id="canvasMessage" hidden>장면을 추가해 주세요.</div></div>
+          <div class="canvas-shell" id="canvasShell">
+            <canvas id="previewCanvas" width="1280" height="720"></canvas>
+            <svg id="motionPathOverlay" class="motion-path-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="모션 경로 편집 오버레이"></svg>
+            <div class="canvas-message" id="canvasMessage" hidden>장면을 추가해 주세요.</div>
+          </div>
+          <div class="path-toolbar" aria-label="모션 경로 도구">
+            <div><strong>화면에서 이동 경로 그리기</strong><span id="pathHint">직선은 두 점, 곡선은 여러 점, 자유선은 드래그로 그립니다.</span></div>
+            <div class="path-actions">
+              <button type="button" class="path-mode active" data-path-mode="straight">직선</button>
+              <button type="button" class="path-mode" data-path-mode="curve">곡선</button>
+              <button type="button" class="path-mode" data-path-mode="free">자유선</button>
+              <button type="button" id="pathEditButton" class="secondary-button">경로 그리기</button>
+              <button type="button" id="pathClearButton" class="ghost-button">초기화</button>
+            </div>
+          </div>
           <div class="transport">
             <button class="play-button" id="playButton" type="button" aria-label="재생"><svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5 18 12 8 18.5z" /></svg><svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M7 5h3.5v14H7zm6.5 0H17v14h-3.5z" /></svg></button>
             <span id="timeCurrent">00:00.0</span><input id="seekInput" type="range" min="0" max="1" value="0" step="0.001" aria-label="재생 위치" /><span id="timeTotal">00:00.0</span>
@@ -177,7 +192,11 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
               </div>
               <label class="field"><span>모션 프리셋</span><select id="motionPresetSelect"></select></label>
               <div class="range-block"><label><span>시작 줌 <output id="startZoomOutput"></output></span><input id="startZoomInput" type="range" min="100" max="220" step="1" /></label><label><span>끝 줌 <output id="endZoomOutput"></output></span><input id="endZoomInput" type="range" min="100" max="220" step="1" /></label></div>
-              <div class="range-block two-col"><label><span>시작 X <output id="startXOutput"></output></span><input id="startXInput" type="range" min="0" max="100" step="1" /></label><label><span>시작 Y <output id="startYOutput"></output></span><input id="startYInput" type="range" min="0" max="100" step="1" /></label><label><span>끝 X <output id="endXOutput"></output></span><input id="endXInput" type="range" min="0" max="100" step="1" /></label><label><span>끝 Y <output id="endYOutput"></output></span><input id="endYInput" type="range" min="0" max="100" step="1" /></label></div>
+              <div class="path-summary" id="pathSummary"><span>경로</span><strong>기본 시작 → 끝</strong><small>미리보기 위에서 직접 경로를 그리면 숫자 좌표를 입력할 필요가 없습니다.</small></div>
+              <details class="advanced-motion">
+                <summary>세부 좌표 직접 조정</summary>
+                <div class="range-block two-col"><label><span>시작 X <output id="startXOutput"></output></span><input id="startXInput" type="range" min="0" max="100" step="1" /></label><label><span>시작 Y <output id="startYOutput"></output></span><input id="startYInput" type="range" min="0" max="100" step="1" /></label><label><span>끝 X <output id="endXOutput"></output></span><input id="endXInput" type="range" min="0" max="100" step="1" /></label><label><span>끝 Y <output id="endYOutput"></output></span><input id="endYInput" type="range" min="0" max="100" step="1" /></label></div>
+              </details>
               <div class="toggle-line"><div><strong>커서 연출</strong><span>대상으로 이동 후 클릭</span></div><label class="switch"><input id="cursorEnabledInput" type="checkbox" /><i></i></label></div>
               <div class="range-block two-col" id="cursorControls"><label><span>커서 X <output id="cursorXOutput"></output></span><input id="cursorXInput" type="range" min="0" max="100" step="1" /></label><label><span>커서 Y <output id="cursorYOutput"></output></span><input id="cursorYInput" type="range" min="0" max="100" step="1" /></label></div>
             </div>
@@ -187,6 +206,7 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
           <section class="panel sound-panel">
             <div class="panel-title"><div><p class="eyebrow">SOUND</p><h3>사운드 트랙</h3></div><button class="icon-text-button" id="soundPreviewButton" type="button">미리듣기</button></div>
             <label class="field"><span>트랙</span><select id="soundPresetSelect"></select></label>
+            <div class="sound-preset-grid" id="soundPresetGrid" aria-label="기본 사운드 빠른 선택"></div>
             <div class="sound-wave" id="soundWave" aria-hidden="true"></div>
             <label class="range-single"><span>볼륨 <output id="volumeOutput"></output></span><input id="volumeInput" type="range" min="0" max="100" step="1" /></label>
             <label class="check-line"><input id="fadeAudioInput" type="checkbox" /><span>시작/끝 0.8초 페이드</span></label>
@@ -201,14 +221,14 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
     <section class="notes-section">
       <div><p class="eyebrow">HOW IT WORKS</p><h2>정적 사이트이지만, 제작 흐름은 실제로 동작합니다.</h2></div>
       <div class="notes-grid">
-        <article><span>01</span><h3>URL 캡처</h3><p>공개 URL을 서버 측 브라우저로 렌더링해 이미지로 가져옵니다. 전체 페이지 캡처는 한 장의 긴 이미지를 여러 카메라 장면으로 재사용합니다.</p></article>
+        <article><span>01</span><h3>URL 캡처</h3><p>공개 URL을 서버 측 브라우저로 렌더링하고 페이지 제목·헤딩·버튼 텍스트를 함께 읽습니다. 전체 페이지 캡처 한 장을 DOM 흐름에 맞춰 여러 카메라 장면으로 재사용합니다.</p></article>
         <article><span>02</span><h3>템플릿 편집</h3><p>기본 템플릿을 적용한 뒤 줌·포커스·커서·전환을 수정하고, 현재 결과를 내 템플릿으로 로컬 저장하거나 JSON으로 백업할 수 있습니다.</p></article>
         <article><span>03</span><h3>오디오 포함 렌더링</h3><p>내장 생성형 사운드 또는 업로드한 오디오를 Canvas 영상 스트림과 결합해 브라우저에서 WebM으로 기록합니다.</p></article>
       </div>
     </section>
   </main>
 
-  <footer class="footer"><div><strong>MotionFrame Studio</strong><span>v3.0 · 24 built-in motion templates · Static-first editor</span></div><nav><a href="#capture">URL 캡처</a><a href="#templates">템플릿</a><a href="#top">맨 위로</a></nav></footer>
+  <footer class="footer"><div><strong>MotionFrame Studio</strong><span>v4.0 · DOM-aware capture · Visual motion paths · Audio preview</span></div><nav><a href="#capture">URL 캡처</a><a href="#templates">템플릿</a><a href="#top">맨 위로</a></nav></footer>
 
   <div class="toast-root" id="toastRoot" aria-live="polite" aria-atomic="true"></div>
 
@@ -229,6 +249,6 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
       status.querySelector('p').textContent = 'JavaScript가 시작되지 않았습니다. 새로고침 후에도 계속되면 배포된 assets/app.js를 확인해 주세요.';
     }, 3500);
   </script>
-  <script type="module" src="./assets/app.js?v=3.0.0"></script>
+  <script type="module" src="./assets/app.js?v=4.0.0"></script>
 </body>
 </html>

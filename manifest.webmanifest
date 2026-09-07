@@ -1,7 +1,7 @@
 {
   "name": "MotionFrame Studio",
   "short_name": "MotionFrame",
-  "description": "URL과 화면을 줌·팬·커서·사운드 쇼케이스 영상으로 만드는 브라우저 편집기",
+  "description": "URL의 화면과 페이지 구조를 분석해 모션 패스·사운드가 포함된 WebM 쇼케이스 영상을 만드는 브라우저 편집기",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

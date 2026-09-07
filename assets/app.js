@@ -1,15 +1,15 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=3.0.0';
-import { soundPresets, createProceduralBuffer, applyFade } from './audio.js?v=3.0.0';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=4.0.0';
+import { soundPresets, createProceduralBuffer, applyFade } from './audio.js?v=4.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const lerp = (a, b, t) => a + (b - a) * t;
 const easeInOut = (t) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-const STORAGE_KEY = 'motionframe:v3:project';
-const LEGACY_STORAGE_KEY = 'motionframe:v2:project';
-const TEMPLATE_KEY = 'motionframe:v3:templates';
-const LEGACY_TEMPLATE_KEY = 'motionframe:v2:templates';
+const STORAGE_KEY = 'motionframe:v4:project';
+const LEGACY_STORAGE_KEY = 'motionframe:v3:project';
+const TEMPLATE_KEY = 'motionframe:v4:templates';
+const LEGACY_TEMPLATE_KEY = 'motionframe:v3:templates';
 const DB_NAME = 'motionframe-studio-v3';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
@@ -32,6 +32,10 @@ const assetUrlCache = new Map();
 const imageCache = new Map();
 const videoCache = new Map();
 let screenRecording = null;
+let pathEditMode = 'straight';
+let pathEditing = false;
+let pathDrawing = false;
+let pathDraft = [];
 
 const canvas = $('#previewCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -122,6 +126,10 @@ function baseScene(overrides = {}) {
     assetKey: null,
     imageUrl: '',
     sourceUrl: '',
+    sourceAnalysis: null,
+    motionPath: [],
+    pathType: 'straight',
+    cursorFollowPath: false,
     duration: 2.4,
     transition: 'crossfade',
     motionPreset: 'overview',
@@ -139,11 +147,11 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 3,
+    version: 4,
     aspect: '16:9',
     resolution: '1280x720',
     frameStyle: 'browser',
-    audio: { preset: 'softPulse', volume: 42, fade: true, assetKey: null, name: '' },
+    audio: { preset: 'softCorporate', volume: 42, fade: true, assetKey: null, name: '' },
     scenes: [
       baseScene({ name: '전체 화면', imageUrl: demoSvg('Automation overview', '#8da5ff', 0), duration: 2.2, sourceType: 'demo', motionPreset: 'overview' }),
       baseScene({ name: '기능 포커스', imageUrl: demoSvg('Workflow builder', '#91d2b3', 1), duration: 2.4, sourceType: 'demo', motionPreset: 'focus', endX: 67, endY: 46, cursorX: 69, cursorY: 48 }),
@@ -156,12 +164,12 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 3,
+    version: 4,
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
     frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
     audio: {
-      preset: project.audio?.preset || 'softPulse',
+      preset: normalizeAudioPreset(project.audio?.preset),
       volume: clamp(Number(project.audio?.volume ?? 42), 0, 100),
       fade: project.audio?.fade !== false,
       assetKey: project.audio?.assetKey || null,
@@ -226,6 +234,107 @@ function setCaptureStatus(title, text, mode = '') {
   el.className = `capture-status ${mode}`.trim();
   el.querySelector('strong').textContent = title;
   el.querySelector('p').textContent = text;
+}
+
+function cleanTextArray(value, limit = 8) {
+  const list = Array.isArray(value) ? value : value ? [value] : [];
+  return [...new Set(list.map((item) => String(item || '').replace(/\s+/g, ' ').trim()).filter((item) => item.length >= 2 && item.length <= 100))].slice(0, limit);
+}
+
+function normalizeAudioPreset(id) {
+  const legacy = { softPulse: 'softCorporate', airPad: 'ambientFlow', focusGrid: 'focusDrive', launchBeat: 'launchDrive' };
+  const next = legacy[id] || id || 'softCorporate';
+  return soundPresets.some((item) => item.id === next) ? next : 'softCorporate';
+}
+
+function normalizePageAnalysis(payload, url) {
+  const data = payload?.data || {};
+  const title = String(data.title || '').replace(/\s+/g, ' ').trim();
+  return {
+    url,
+    title: title || (() => { try { return new URL(url).hostname; } catch { return url; } })(),
+    headings: cleanTextArray(data.headings, 8),
+    buttons: cleanTextArray(data.buttons, 6),
+    nav: cleanTextArray(data.nav, 6)
+  };
+}
+
+function renderDomAnalysis(scenes = []) {
+  const root = $('#domAnalysis');
+  const chips = $('#domAnalysisChips');
+  if (!root || !chips) return;
+  const analyses = scenes.map((scene) => scene.sourceAnalysis).filter(Boolean);
+  if (!analyses.length) { root.hidden = true; chips.innerHTML = ''; return; }
+  const titleCount = analyses.filter((item) => item.title).length;
+  const headings = analyses.reduce((sum, item) => sum + item.headings.length, 0);
+  const buttons = analyses.reduce((sum, item) => sum + item.buttons.length, 0);
+  chips.innerHTML = `<span><b>${titleCount}</b>페이지 제목</span><span><b>${headings}</b>헤딩</span><span><b>${buttons}</b>CTA/버튼</span>`;
+  const examples = analyses.flatMap((item) => [...item.headings.slice(0, 2), ...item.buttons.slice(0, 1)]).slice(0, 4);
+  examples.forEach((text) => { const chip = document.createElement('span'); chip.textContent = text; chips.append(chip); });
+  root.hidden = false;
+}
+
+function semanticCues(analysis) {
+  if (!analysis) return [];
+  const cues = [];
+  const add = (type, label, x, y) => {
+    const clean = String(label || '').replace(/\s+/g, ' ').trim();
+    if (!clean || cues.some((item) => item.label === clean)) return;
+    cues.push({ type, label: clean.slice(0, 72), x, y });
+  };
+  add('title', analysis.title, 50, 16);
+  const headingXs = [42, 62, 38, 66, 48, 58];
+  analysis.headings.slice(0, 5).forEach((label, index) => add('heading', label, headingXs[index % headingXs.length], 30 + index * 11));
+  const buttonXs = [64, 40, 72];
+  analysis.buttons.slice(0, 2).forEach((label, index) => add('button', label, buttonXs[index], Math.min(88, 72 + index * 12)));
+  return cues.slice(0, 7);
+}
+
+function buildSemanticStory(bases, template) {
+  const sequence = template.sequence?.length ? template.sequence : [{ motion: 'overview', duration: 2.4, transition: 'crossfade' }];
+  const output = [];
+  bases.forEach((base) => {
+    const cues = semanticCues(base.sourceAnalysis);
+    if (!cues.length) {
+      sequence.forEach((spec, index) => {
+        const scene = structuredClone(base); scene.id = createId('scene');
+        output.push(hydrateMotion(scene, spec.motion || 'overview', { ...spec, id: scene.id, name: `${base.name} · ${index + 1}` }));
+      });
+      return;
+    }
+    let previous = { x: 50, y: 10 };
+    cues.forEach((cue, index) => {
+      const spec = sequence[index % sequence.length];
+      const scene = structuredClone(base); scene.id = createId('scene');
+      const button = cue.type === 'button';
+      const title = cue.type === 'title';
+      const endZoom = button ? 148 : title ? 116 : 132;
+      const pathType = index > 1 ? 'curve' : 'straight';
+      const mid = { x: (previous.x + cue.x) / 2 + (index % 2 ? 5 : -4), y: (previous.y + cue.y) / 2 };
+      const motionPath = pathType === 'curve' ? [previous, mid, { x: cue.x, y: cue.y }] : [previous, { x: cue.x, y: cue.y }];
+      output.push(hydrateMotion(scene, spec.motion || 'focus', {
+        ...spec,
+        id: scene.id,
+        name: cue.label,
+        startX: previous.x,
+        startY: previous.y,
+        endX: cue.x,
+        endY: cue.y,
+        startZoom: index === 0 ? 100 : Math.min(122, endZoom - 12),
+        endZoom,
+        motionPath,
+        pathType,
+        cursorEnabled: button || Boolean(spec.cursorEnabled),
+        cursorFollowPath: button,
+        cursorX: cue.x,
+        cursorY: cue.y
+      }));
+      previous = { x: cue.x, y: cue.y };
+    });
+    const outro = structuredClone(base); outro.id = createId('scene');
+    output.push(hydrateMotion(outro, 'pullout', { id: outro.id, name: `${base.name} · 전체`, duration: 1.7, transition: 'crossfade', startX: previous.x, startY: previous.y, endX: 50, endY: 50, startZoom: 124, endZoom: 100, motionPath: [previous, { x: 50, y: 50 }], pathType: 'curve' }));
+  });
+  return output.slice(0, 18);
 }
 
 function normalizeUrl(value) {
@@ -375,6 +484,44 @@ function frameGeometry(width, height) {
   return { x:mx, y:my, w:width - mx*2, h:height - my*2, chrome, radius: Math.max(12, width * .012) };
 }
 
+function effectiveMotionPath(scene) {
+  const points = Array.isArray(scene.motionPath) ? scene.motionPath.filter((point) => Number.isFinite(Number(point?.x)) && Number.isFinite(Number(point?.y))).map((point) => ({ x: clamp(Number(point.x), 0, 100), y: clamp(Number(point.y), 0, 100) })) : [];
+  if (points.length >= 2) return points;
+  return [{ x: Number(scene.startX ?? 50), y: Number(scene.startY ?? 50) }, { x: Number(scene.endX ?? 50), y: Number(scene.endY ?? 50) }];
+}
+
+function samplePolyline(points, progress) {
+  if (points.length === 1) return points[0];
+  const lengths = []; let total = 0;
+  for (let i = 1; i < points.length; i += 1) { const d = Math.hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y); lengths.push(d); total += d; }
+  if (!total) return points[points.length - 1];
+  let target = clamp(progress, 0, 1) * total;
+  for (let i = 0; i < lengths.length; i += 1) {
+    if (target <= lengths[i] || i === lengths.length - 1) { const local = lengths[i] ? target / lengths[i] : 0; return { x: lerp(points[i].x, points[i+1].x, local), y: lerp(points[i].y, points[i+1].y, local) }; }
+    target -= lengths[i];
+  }
+  return points[points.length - 1];
+}
+
+function catmullPoint(p0, p1, p2, p3, t) {
+  const t2 = t*t, t3 = t2*t;
+  return {
+    x: .5 * ((2*p1.x) + (-p0.x+p2.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+    y: .5 * ((2*p1.y) + (-p0.y+p2.y)*t + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
+  };
+}
+
+function sampleMotionPath(scene, progress) {
+  const points = effectiveMotionPath(scene);
+  if ((scene.pathType || 'straight') !== 'curve' || points.length < 3) return samplePolyline(points, progress);
+  const segments = points.length - 1;
+  const scaled = clamp(progress,0,1) * segments;
+  const index = Math.min(segments - 1, Math.floor(scaled));
+  const local = scaled - index;
+  const p0 = points[Math.max(0,index-1)], p1 = points[index], p2 = points[index+1], p3 = points[Math.min(points.length-1,index+2)];
+  return catmullPoint(p0,p1,p2,p3,local);
+}
+
 async function drawScene(scene, progress, opacity = 1, transform = {}) {
   let img;
   if (scene.sourceType === 'video') {
@@ -389,8 +536,9 @@ async function drawScene(scene, progress, opacity = 1, transform = {}) {
   const w = canvas.width, h = canvas.height;
   const p = easeInOut(clamp(progress,0,1));
   const zoom = lerp(Number(scene.startZoom), Number(scene.endZoom), p);
-  const focusX = lerp(Number(scene.startX), Number(scene.endX), p);
-  const focusY = lerp(Number(scene.startY), Number(scene.endY), p);
+  const focusPoint = sampleMotionPath(scene, p);
+  const focusX = focusPoint.x;
+  const focusY = focusPoint.y;
   const geom = frameGeometry(w,h);
   const contentY = geom.y + geom.chrome;
   const contentH = geom.h - geom.chrome;
@@ -426,8 +574,9 @@ async function drawScene(scene, progress, opacity = 1, transform = {}) {
     const cursorT = clamp((progress - .08) / .68, 0, 1);
     const cp = easeInOut(cursorT);
     const startCX = 18, startCY = 24;
-    const cx = lerp(startCX, Number(scene.cursorX), cp) / 100 * w;
-    const cy = lerp(startCY, Number(scene.cursorY), cp) / 100 * h;
+    const cursorPoint = scene.cursorFollowPath && effectiveMotionPath(scene).length >= 2 ? sampleMotionPath(scene, cp) : { x: lerp(startCX, Number(scene.cursorX), cp), y: lerp(startCY, Number(scene.cursorY), cp) };
+    const cx = cursorPoint.x / 100 * w;
+    const cy = cursorPoint.y / 100 * h;
     const click = progress > .70 && progress < .88 ? (progress - .70) / .18 : 0;
     drawCursor(ctx, cx, cy, Math.max(26,w*.025), click);
   }
@@ -527,13 +676,26 @@ function renderInspector() {
   const pairs=[['startZoom',scene.startZoom,'%'],['endZoom',scene.endZoom,'%'],['startX',scene.startX,'%'],['startY',scene.startY,'%'],['endX',scene.endX,'%'],['endY',scene.endY,'%'],['cursorX',scene.cursorX,'%'],['cursorY',scene.cursorY,'%']];
   pairs.forEach(([key,val,suffix])=>{ const input=$(`#${key}Input`), output=$(`#${key}Output`); if(input)input.value=val; if(output)output.textContent=`${val}${suffix}`; });
   $('#cursorEnabledInput').checked=Boolean(scene.cursorEnabled); $('#cursorControls').style.opacity=scene.cursorEnabled?'1':'.45';
+  const path = effectiveMotionPath(scene); const summary = $('#pathSummary');
+  if (summary) { summary.querySelector('strong').textContent = Array.isArray(scene.motionPath) && scene.motionPath.length >= 2 ? `${scene.pathType === 'free' ? '자유선' : scene.pathType === 'curve' ? '곡선' : '직선'} · ${scene.motionPath.length}점` : '기본 시작 → 끝'; }
+  renderMotionPathOverlay();
 }
 
 function renderSound() {
-  $('#soundPresetSelect').value=state.audio.preset;
+  state.audio.preset=normalizeAudioPreset(state.audio.preset); $('#soundPresetSelect').value=state.audio.preset;
   $('#volumeInput').value=state.audio.volume; $('#volumeOutput').textContent=`${state.audio.volume}%`; $('#fadeAudioInput').checked=state.audio.fade;
   const preset=soundPresets.find(s=>s.id===state.audio.preset);
-  $('#audioHelper').textContent=state.audio.preset==='custom' ? (state.audio.name ? `사용 중: ${state.audio.name}` : '오디오 파일을 업로드해 주세요.') : (preset?.description || '');
+  $('#audioHelper').textContent=state.audio.preset==='custom' ? (state.audio.name ? `사용 중: ${state.audio.name} · WebM 내보내기에 실제 오디오 트랙으로 포함됩니다.` : '오디오 파일을 업로드해 주세요.') : `${preset?.description || ''}${state.audio.preset !== 'none' ? ' · WebM에 실제 오디오 트랙으로 포함됩니다.' : ''}`;
+  const grid = $('#soundPresetGrid');
+  if (grid) {
+    grid.innerHTML = '';
+    soundPresets.filter((item) => !['custom'].includes(item.id)).forEach((item) => {
+      const button = document.createElement('button'); button.type='button'; button.className=`sound-chip ${state.audio.preset===item.id?'active':''}`;
+      button.innerHTML=`<span class="sound-play">${item.id==='none'?'×':'▶'}</span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.short || item.description)}</small></span>`;
+      button.addEventListener('click', async () => { stopPreviewAudio(); clearTimeout(soundPreviewTimer); state.audio.preset=item.id; saveState(); renderSound(); if(item.id!=='none') await previewSoundOnly(); });
+      grid.append(button);
+    });
+  }
 }
 
 function renderMeta() {
@@ -545,7 +707,61 @@ function renderMeta() {
 
 async function renderAll() {
   if (state.scenes.length && !state.scenes.some(s=>s.id===selectedSceneId)) selectedSceneId=state.scenes[0].id;
-  renderMeta(); renderInspector(); renderSound(); await renderSceneCards(); await updatePreview();
+  renderMeta(); renderInspector(); renderSound(); await renderSceneCards(); await updatePreview(); renderMotionPathOverlay();
+}
+
+
+function pathPointFromEvent(event) {
+  const overlay = $('#motionPathOverlay'); const rect = overlay.getBoundingClientRect();
+  return { x: clamp((event.clientX - rect.left) / Math.max(1, rect.width) * 100, 0, 100), y: clamp((event.clientY - rect.top) / Math.max(1, rect.height) * 100, 0, 100) };
+}
+
+function svgPathFor(points, type) {
+  if (!points.length) return '';
+  if (type !== 'curve' || points.length < 3) return `M ${points.map((point) => `${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' L ')}`;
+  let d = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[Math.max(0,i-1)], p1=points[i], p2=points[i+1], p3=points[Math.min(points.length-1,i+2)];
+    const c1={x:p1.x+(p2.x-p0.x)/6,y:p1.y+(p2.y-p0.y)/6}; const c2={x:p2.x-(p3.x-p1.x)/6,y:p2.y-(p3.y-p1.y)/6};
+    d += ` C ${c1.x.toFixed(2)} ${c1.y.toFixed(2)} ${c2.x.toFixed(2)} ${c2.y.toFixed(2)} ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
+function renderMotionPathOverlay() {
+  const overlay = $('#motionPathOverlay'); if (!overlay) return;
+  const scene = selectedScene(); const points = pathEditing ? pathDraft : (scene?.motionPath || []);
+  overlay.classList.toggle('editing', pathEditing);
+  overlay.innerHTML='';
+  if (!scene || !Array.isArray(points) || points.length < 1) return;
+  const ns='http://www.w3.org/2000/svg';
+  if (points.length >= 2) { const path=document.createElementNS(ns,'path'); path.setAttribute('class','path-line'); path.setAttribute('d',svgPathFor(points,pathEditing?pathEditMode:(scene.pathType||'straight'))); overlay.append(path); }
+  points.forEach((point,index)=>{ const circle=document.createElementNS(ns,'circle'); circle.setAttribute('cx',point.x); circle.setAttribute('cy',point.y); circle.setAttribute('r','1.25'); circle.setAttribute('class',`path-node ${index===0?'start':index===points.length-1?'end':''}`); overlay.append(circle); if(index===0||index===points.length-1){const text=document.createElementNS(ns,'text');text.setAttribute('x',point.x+1.8);text.setAttribute('y',point.y-1.8);text.setAttribute('class','path-label');text.textContent=index===0?'START':'END';overlay.append(text);} });
+}
+
+function commitPath(points = pathDraft, type = pathEditMode) {
+  const scene = selectedScene(); if (!scene || !Array.isArray(points) || points.length < 2) return;
+  const cleaned = points.slice(0, 80).map((point)=>({x:Math.round(clamp(point.x,0,100)*10)/10,y:Math.round(clamp(point.y,0,100)*10)/10}));
+  scene.motionPath=cleaned; scene.pathType=type; scene.startX=cleaned[0].x; scene.startY=cleaned[0].y; scene.endX=cleaned[cleaned.length-1].x; scene.endY=cleaned[cleaned.length-1].y; scene.motionPreset='custom'; if(scene.cursorEnabled)scene.cursorFollowPath=true;
+  saveState(); renderInspector(); updatePreview(); renderSceneCards();
+}
+
+function setPathEditing(next) {
+  const scene=selectedScene(); if(!scene){toast('먼저 장면을 선택해 주세요.','error');return;}
+  pathEditing=next; pathDrawing=false; pathDraft=next && Array.isArray(scene.motionPath) && scene.motionPath.length>=2 ? structuredClone(scene.motionPath) : [];
+  $('#pathEditButton').textContent=next?'경로 완료':'경로 그리기'; $('#pathHint').textContent=next ? (pathEditMode==='free'?'미리보기 위를 누른 채 드래그하세요.':pathEditMode==='curve'?'원하는 지점을 차례로 클릭하세요. 완료 버튼으로 저장합니다.':'시작점과 끝점을 차례로 클릭하세요.') : '직선은 두 점, 곡선은 여러 점, 자유선은 드래그로 그립니다.';
+  renderMotionPathOverlay();
+}
+
+function bindPathEditor() {
+  $$('.path-mode').forEach((button)=>button.addEventListener('click',()=>{pathEditMode=button.dataset.pathMode;$$('.path-mode').forEach((item)=>item.classList.toggle('active',item===button));if(pathEditing){pathDraft=[];renderMotionPathOverlay();setPathEditing(true);}}));
+  $('#pathEditButton').addEventListener('click',()=>{if(pathEditing){if(pathDraft.length>=2)commitPath(pathDraft,pathEditMode);setPathEditing(false);}else setPathEditing(true);});
+  $('#pathClearButton').addEventListener('click',()=>{const scene=selectedScene();if(!scene)return;scene.motionPath=[];scene.pathType='straight';scene.cursorFollowPath=false;pathDraft=[];saveState();renderInspector();updatePreview();renderSceneCards();toast('직접 그린 이동 경로를 초기화했습니다.');});
+  const overlay=$('#motionPathOverlay');
+  overlay.addEventListener('pointerdown',(event)=>{if(!pathEditing)return;event.preventDefault();const point=pathPointFromEvent(event);if(pathEditMode==='free'){pathDrawing=true;pathDraft=[point];overlay.setPointerCapture?.(event.pointerId);}else{if(pathEditMode==='straight'&&pathDraft.length>=2)pathDraft=[];pathDraft.push(point);renderMotionPathOverlay();if(pathEditMode==='straight'&&pathDraft.length===2){commitPath(pathDraft,'straight');setPathEditing(false);}}});
+  overlay.addEventListener('pointermove',(event)=>{if(!pathEditing||pathEditMode!=='free'||!pathDrawing)return;const point=pathPointFromEvent(event);const last=pathDraft[pathDraft.length-1];if(!last||Math.hypot(point.x-last.x,point.y-last.y)>.9){pathDraft.push(point);renderMotionPathOverlay();}});
+  const finishFree=(event)=>{if(!pathDrawing)return;pathDrawing=false;try{overlay.releasePointerCapture?.(event.pointerId);}catch{}if(pathDraft.length>=2){commitPath(pathDraft,'free');setPathEditing(false);}};
+  overlay.addEventListener('pointerup',finishFree);overlay.addEventListener('pointercancel',finishFree);
 }
 
 function setupSelectOptions() {
@@ -621,7 +837,7 @@ function renderTemplates() {
 }
 
 function templateSequenceFromState() {
-  return state.scenes.map(scene=>({ motion: scene.motionPreset || 'custom', duration:Number(scene.duration), transition:scene.transition, startZoom:scene.startZoom,endZoom:scene.endZoom,startX:scene.startX,startY:scene.startY,endX:scene.endX,endY:scene.endY,cursorEnabled:scene.cursorEnabled,cursorX:scene.cursorX,cursorY:scene.cursorY }));
+  return state.scenes.map(scene=>({ motion: scene.motionPreset || 'custom', duration:Number(scene.duration), transition:scene.transition, startZoom:scene.startZoom,endZoom:scene.endZoom,startX:scene.startX,startY:scene.startY,endX:scene.endX,endY:scene.endY,cursorEnabled:scene.cursorEnabled,cursorX:scene.cursorX,cursorY:scene.cursorY,motionPath:scene.motionPath,pathType:scene.pathType,cursorFollowPath:scene.cursorFollowPath }));
 }
 
 function cloneBuiltinTemplate(template) {
@@ -651,7 +867,7 @@ function applyTemplate(template) {
     const spec=sequence[i%sequence.length];
     next.push(hydrateMotion(source,spec.motion || 'overview',{ ...spec, id:source.id, name: originals.length===1 ? `${originals[0].name} · ${i+1}` : source.name }));
   }
-  state.scenes=next; state.aspect=template.aspect||state.aspect; state.frameStyle=template.frameStyle||state.frameStyle; if(template.audioPreset)state.audio.preset=template.audioPreset;
+  state.scenes=next; state.aspect=template.aspect||state.aspect; state.frameStyle=template.frameStyle||state.frameStyle; if(template.audioPreset)state.audio.preset=normalizeAudioPreset(template.audioPreset);
   selectedSceneId=state.scenes[0]?.id||null; currentTime=0; saveState(); renderAll(); toast(`“${template.title}” 템플릿을 적용했습니다.`); location.hash='studio';
 }
 
@@ -676,7 +892,14 @@ async function fetchMicrolinkCapture(url, mode, viewport) {
   const params = new URLSearchParams({
     url,
     screenshot: 'true',
-    meta: 'false',
+    meta: 'true',
+    prerender: 'true',
+    'data.headings.selectorAll': 'h1,h2,h3',
+    'data.headings.attr': 'text',
+    'data.buttons.selectorAll': 'button,[role="button"],a.button,a.btn,a[class*="button"],a[class*="btn"],a.cta',
+    'data.buttons.attr': 'text',
+    'data.nav.selectorAll': 'nav a',
+    'data.nav.attr': 'text',
     'screenshot.type': 'png',
     'viewport.width': String(width),
     'viewport.height': String(height)
@@ -691,7 +914,7 @@ async function fetchMicrolinkCapture(url, mode, viewport) {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.startsWith('image/')) {
     lastCaptureProvider = 'Microlink';
-    return response.blob();
+    return { blob: await response.blob(), analysis: null };
   }
   const payload = await response.json();
   if (payload.status === 'fail' || payload.status === 'error') throw new Error(payload.message || payload.data?.message || 'Microlink 캡처 실패');
@@ -702,7 +925,7 @@ async function fetchMicrolinkCapture(url, mode, viewport) {
   const blob = await imageResponse.blob();
   if (!blob.type.startsWith('image/')) throw new Error('캡처 결과가 이미지가 아닙니다.');
   lastCaptureProvider = 'Microlink';
-  return blob;
+  return { blob, analysis: normalizePageAnalysis(payload, url) };
 }
 
 async function fetchMshotsCapture(url, viewport) {
@@ -717,7 +940,7 @@ async function fetchMshotsCapture(url, viewport) {
       const blob = await response.blob();
       if (!blob.type.startsWith('image/')) throw new Error('mShots 결과가 이미지가 아닙니다.');
       lastCaptureProvider = 'WordPress mShots';
-      return blob;
+      return { blob, analysis: null };
     } catch (error) {
       lastError = error;
     }
@@ -740,9 +963,9 @@ async function fetchUrlCapture(url, mode, viewport) {
   throw new Error(`외부 캡처 서비스가 응답하지 않았습니다. ${errors.join(' / ')} 로그인 페이지는 ‘화면 녹화 클립’을 사용하세요.`);
 }
 
-async function makeImageSceneFromBlob(blob,{name='캡처 장면',sourceType='upload',sourceUrl=''}={}) {
+async function makeImageSceneFromBlob(blob,{name='캡처 장면',sourceType='upload',sourceUrl='',analysis=null}={}) {
   const key=createId('asset'); await putAsset(key,blob);
-  const scene=baseScene({ name, sourceType, sourceUrl, assetKey:key, imageUrl:'', motionPreset:'overview' });
+  const scene=baseScene({ name, sourceType, sourceUrl, sourceAnalysis:analysis, assetKey:key, imageUrl:'', motionPreset:'overview' });
   await imageForScene(scene);
   return scene;
 }
@@ -788,8 +1011,9 @@ async function captureUrl(asStory) {
       const host = new URL(url).hostname;
       setCaptureStatus(`URL 캡처 중 ${index + 1}/${urls.length}`, `${host} · 브라우저 렌더링을 기다리는 중`, 'loading');
       try {
-        const blob = await fetchUrlCapture(url, mode, viewport);
-        const scene = await makeImageSceneFromBlob(blob, { name: host, sourceType: 'url', sourceUrl: url });
+        const result = await fetchUrlCapture(url, mode, viewport);
+        const sceneName = result.analysis?.title || host;
+        const scene = await makeImageSceneFromBlob(result.blob, { name: sceneName, sourceType: 'url', sourceUrl: url, analysis: result.analysis });
         bases.push(scene);
         setCaptureStatus(`캡처 완료 ${index + 1}/${urls.length}`, `${host} · ${lastCaptureProvider}`, 'loading');
       } catch (error) {
@@ -802,16 +1026,23 @@ async function captureUrl(asStory) {
     if (asStory) {
       const template = currentTemplates().find((item) => item.id === $('#captureTemplateSelect').value) || builtinTemplates[0];
       const old = isDemo ? [] : [...state.scenes];
-      state.scenes = bases;
-      applyTemplate(template);
+      const structured = bases.some((scene) => scene.sourceAnalysis && (scene.sourceAnalysis.headings.length || scene.sourceAnalysis.buttons.length));
+      state.scenes = structured ? buildSemanticStory(bases, template) : bases;
+      if (!structured) applyTemplate(template);
+      else {
+        state.aspect=template.aspect||state.aspect; state.frameStyle=template.frameStyle||state.frameStyle; if(template.audioPreset)state.audio.preset=normalizeAudioPreset(template.audioPreset);
+        selectedSceneId=state.scenes[0]?.id||null; currentTime=0; saveState(); await renderAll(); location.hash='studio';
+      }
       if (old.length) {
         state.scenes = [...old, ...state.scenes];
         selectedSceneId = state.scenes[old.length]?.id || state.scenes[0]?.id;
         saveState();
         await renderAll();
       }
+      renderDomAnalysis(bases);
       const note = failures.length ? ` · ${failures.length}개 URL 실패` : '';
-      setCaptureStatus('URL 쇼릴 생성 완료', `${bases.length}개 URL · ${template.title} · ${state.scenes.length}개 장면${note}`, failures.length ? 'warning' : 'success');
+      const structureNote = structured ? ' · DOM 구조 기반 장면' : ' · 캡처 기반 장면';
+      setCaptureStatus('URL 쇼릴 생성 완료', `${bases.length}개 URL · ${template.title} · ${state.scenes.length}개 장면${structureNote}${note}`, failures.length ? 'warning' : 'success');
     } else {
       if (isDemo) state.scenes = [];
       state.scenes.push(...bases);
@@ -819,7 +1050,8 @@ async function captureUrl(asStory) {
       currentTime = Math.max(0, totalDuration() - bases[0].duration);
       saveState();
       await renderAll();
-      setCaptureStatus('URL 캡처 완료', `${lastCaptureProvider}로 캡처한 장면을 편집기에 추가했습니다.`, 'success');
+      renderDomAnalysis(bases);
+      setCaptureStatus('URL 캡처 완료', `${lastCaptureProvider}로 화면을 캡처하고 페이지 구조를 함께 분석했습니다.`, 'success');
       location.hash = 'studio';
     }
     if (failures.length) toast(`${bases.length}개 성공, ${failures.length}개 실패했습니다. 성공한 장면은 편집기에 추가했습니다.`);
@@ -982,7 +1214,7 @@ function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const type=
 async function exportProject(){
   const keys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; const assets={};
   for(const key of keys){const blob=await getAsset(key);if(blob)assets[key]={type:blob.type,data:await blobToDataUrl(blob)};}
-  downloadJson({kind:'motionframe-project',version:2,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
+  downloadJson({kind:'motionframe-project',version:4,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
 }
 
 async function importProjectFile(file){
@@ -1000,9 +1232,9 @@ async function resetProject(){
 function bindInspector(){
   $('#sceneNameInput').addEventListener('input',e=>updateSelectedScene({name:e.target.value},false)); $('#sceneNameInput').addEventListener('change',()=>renderAll());
   $('#durationInput').addEventListener('change',e=>updateSelectedScene({duration:clamp(Number(e.target.value)||2.4,.8,15)})); $('#transitionSelect').addEventListener('change',e=>updateSelectedScene({transition:e.target.value}));
-  $('#motionPresetSelect').addEventListener('change',e=>{const scene=selectedScene();if(!scene)return;const next=hydrateMotion(scene,e.target.value,{motionPreset:e.target.value,id:scene.id,name:scene.name});Object.assign(scene,next);saveState();renderAll();});
-  ['startZoom','endZoom','startX','startY','endX','endY','cursorX','cursorY'].forEach(key=>{const input=$(`#${key}Input`);input.addEventListener('input',e=>{const scene=selectedScene();if(!scene)return;scene[key]=Number(e.target.value);scene.motionPreset='custom';const out=$(`#${key}Output`);if(out)out.textContent=`${e.target.value}%`;saveState();updatePreview();renderSceneCards();});});
-  $('#cursorEnabledInput').addEventListener('change',e=>updateSelectedScene({cursorEnabled:e.target.checked,motionPreset:'custom'}));
+  $('#motionPresetSelect').addEventListener('change',e=>{const scene=selectedScene();if(!scene)return;const next=hydrateMotion(scene,e.target.value,{motionPreset:e.target.value,id:scene.id,name:scene.name,motionPath:[]});Object.assign(scene,next);saveState();renderAll();});
+  ['startZoom','endZoom','startX','startY','endX','endY','cursorX','cursorY'].forEach(key=>{const input=$(`#${key}Input`);input.addEventListener('input',e=>{const scene=selectedScene();if(!scene)return;scene[key]=Number(e.target.value);scene.motionPreset='custom';if(['startX','startY','endX','endY'].includes(key))scene.motionPath=[];const out=$(`#${key}Output`);if(out)out.textContent=`${e.target.value}%`;saveState();updatePreview();renderSceneCards();});});
+  $('#cursorEnabledInput').addEventListener('change',e=>updateSelectedScene({cursorEnabled:e.target.checked,cursorFollowPath:e.target.checked&&effectiveMotionPath(selectedScene()).length>=2,motionPreset:'custom'}));
 }
 
 function bindEvents(){
@@ -1011,6 +1243,7 @@ function bindEvents(){
   $('#urlStoryButton').addEventListener('click',()=>captureUrl(true)); $('#urlSingleButton').addEventListener('click',()=>captureUrl(false)); $('#urlInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();captureUrl(true);}});
   $('#useExampleUrlButton')?.addEventListener('click',()=>{ $('#urlInput').value='https://example.com/'; $('#urlInput').focus(); setCaptureStatus('예제 URL 입력됨','이제 “URL 시퀀스로 쇼릴”을 눌러 실제 캡처를 시작하세요.'); });
   $('#templateSearchInput')?.addEventListener('input',e=>{templateSearchQuery=e.target.value;renderTemplates();});
+  bindPathEditor();
   $('#imageUploadButton').addEventListener('click',()=>$('#imageInput').click()); $('#imageInput').addEventListener('change',e=>{handleMediaFiles(e.target.files);e.target.value='';}); $('#screenCaptureButton').addEventListener('click',captureScreen); $('#screenRecordButton').addEventListener('click',recordScreenClip);
   $('#saveTemplateButton').addEventListener('click',()=>{$('#templateNameInput').value='';$('#templateSaveDialog').showModal();setTimeout(()=>$('#templateNameInput').focus(),30);});
   $('#templateSaveForm').addEventListener('submit',e=>{e.preventDefault();const name=$('#templateNameInput').value.trim();if(!name)return;saveCurrentTemplate(name,$('#templateCategoryInput').value);$('#templateSaveDialog').close();});
@@ -1042,6 +1275,7 @@ async function init(){
   bindEvents();
   browserSupportCheck();
   await renderAll();
+  renderDomAnalysis(state.scenes);
   window.__motionframeReady = true;
   document.documentElement.classList.add('app-ready');
   const target = location.hash ? document.querySelector(location.hash) : null;
