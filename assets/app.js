@@ -1,6 +1,7 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=10.0.0';
-import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=10.0.0';
-import { buildBeatSpecs, createDirectorPlan, moveFlowStep, planSummary, rebuildFlowFromSelection, removeFlowStep, suggestInternalLinks, toggleElementSelection, updateFlowStep } from './director.js?v=10.0.0';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=11.0.0';
+import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=11.0.0';
+import { buildBeatSpecs, createDirectorPlan, moveFlowStep, planSummary, rebuildFlowFromSelection, removeFlowStep, suggestInternalLinks, toggleElementSelection, updateFlowStep } from './director.js?v=11.0.0';
+import { concepts, sourceTypes, featureDefinitions, getConcept, defaultConceptState, draftOptions, sourceRequirements } from './concepts.js?v=11.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -15,14 +16,14 @@ function windowProgress(progress, start, end, easing = 'cinematic') {
   if (easing === 'linear') return p;
   return easeInOut(p);
 }
-const STORAGE_KEY = 'motionframe:v10:project';
-const LEGACY_STORAGE_KEYS = ['motionframe:v7:project','motionframe:v6:project','motionframe:v5:project'];
-const TEMPLATE_KEY = 'motionframe:v10:templates';
-const LEGACY_TEMPLATE_KEYS = ['motionframe:v9:templates','motionframe:v7:templates','motionframe:v6:templates','motionframe:v5:templates'];
+const STORAGE_KEY = 'motionframe:v11:project';
+const LEGACY_STORAGE_KEYS = ['motionframe:v10:project','motionframe:v9:project','motionframe:v7:project'];
+const TEMPLATE_KEY = 'motionframe:v11:templates';
+const LEGACY_TEMPLATE_KEYS = ['motionframe:v10:templates','motionframe:v9:templates','motionframe:v7:templates'];
 const DB_NAME = 'motionframe-studio-v5';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
-const DOM_FUNCTION = `({page:p})=>p.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,nav a,button,a[href],img,video,canvas,textarea,[class*=preview],[class*=browser]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,sx:scrollX,sy:scrollY,e:a.slice(0,120).map((e,i)=>{let r=e.getBoundingClientRect(),g=e.tagName.toLowerCase(),m=/^(img|video|canvas|textarea)$/.test(g)||/preview|browser/.test(e.className||''),k=e.hash&&document.getElementById(e.hash.slice(1)),z=k&&k.getBoundingClientRect(),t=(m?(e.ariaLabel||e.alt||e.previousElementSibling?.innerText||'Product area'):(e.innerText||e.textContent||e.ariaLabel||'')).trim().replace(/\s+/g,' ').slice(0,80);return !t||r.width<8||r.height<8?null:{i:'e'+i,g,r:m?'surface':'',t,u:e.href||'',x:r.x+r.width/2+scrollX,y:r.y+r.height/2+scrollY,o:r.y+scrollY,w:r.width,h:r.height,X:z?z.x+z.width/2+scrollX:0,Y:z?z.y+z.height/2+scrollY:0,T:z?z.y+scrollY:0,n:!!e.closest('nav')}}).filter(Boolean)}})`;
+const DOM_FUNCTION = `({page:p})=>p.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,button,a[href],img,video,canvas,textarea,[class*=preview],[class*=browser],[class*=logo]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,sx:scrollX,sy:scrollY,e:a.slice(0,120).map((e,i)=>{let r=e.getBoundingClientRect(),g=e.tagName.toLowerCase(),m=/^(img|video|canvas|textarea)$/.test(g)||/preview|browser/.test(e.className||''),k=e.hash&&document.getElementById(e.hash.slice(1)),z=k&&k.getBoundingClientRect(),t=(m?(e.alt||e.previousElementSibling?.innerText||'Product area'):(e.innerText||e.textContent||'')).trim().replace(/\s+/g,' ').slice(0,80);return !t||r.width<8||r.height<8?null:{i:'e'+i,g,r:m?'surface':'',t,u:e.href||'',x:r.x+r.width/2+scrollX,y:r.y+r.height/2+scrollY,o:r.y+scrollY,w:r.width,h:r.height,Y:z?z.y+z.height/2+scrollY:0,n:!!e.closest('nav'),b:/logo|brand/i.test((e.className||'')+' '+(e.id||''))||(g==='a'&&!!e.closest('header')&&!e.closest('nav'))}}).filter(Boolean)}})`;
 
 let dbPromise;
 let state;
@@ -50,6 +51,10 @@ let directorPlan = null;
 let directorBases = [];
 let directorTemplateId = 'impact-flow';
 let lastFrameProjection = null;
+let conceptDrafts = [];
+let conceptMediaBases = [];
+let pendingConceptFiles = { image: [], video: [] };
+let conceptRecording = null;
 
 const canvas = $('#previewCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -174,7 +179,8 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 9,
+    version: 11,
+    concept: defaultConceptState(),
     aspect: '16:9',
     resolution: '1280x720',
     frameStyle: 'browser',
@@ -193,7 +199,8 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 9,
+    version: 11,
+    concept: { ...defaultConceptState(), ...(project.concept || {}), features: Array.isArray(project.concept?.features) ? project.concept.features : defaultConceptState().features },
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
     frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
@@ -336,6 +343,185 @@ function renderDomAnalysis(scenes = []) {
   const examples = analyses.flatMap((item) => [...item.headings.slice(0, 2), ...item.buttons.slice(0, 1)]).slice(0, 4);
   examples.forEach((text) => { const chip = document.createElement('span'); chip.textContent = text; chips.append(chip); });
   root.hidden = false;
+}
+
+
+function ensureConceptState() {
+  if (!state.concept) state.concept = defaultConceptState();
+  if (!Array.isArray(state.concept.features)) state.concept.features = [...getConcept(state.concept.id).features];
+  if (!sourceTypes.some((item) => item.id === state.concept.sourceType)) state.concept.sourceType = getConcept(state.concept.id).preferredSource;
+  return state.concept;
+}
+
+function currentConcept() { return getConcept(ensureConceptState().id); }
+
+function currentConceptProfile() {
+  const c = currentConcept();
+  const enabled = new Set(ensureConceptState().features);
+  return {
+    ...c.director,
+    includeLogo: enabled.has('logo'),
+    includeOverview: enabled.has('overview'),
+    includeHeadings: enabled.has('h1') || enabled.has('sections'),
+    headingCount: enabled.has('sections') ? c.director.headingCount : (enabled.has('h1') ? 1 : 0),
+    mediaCount: enabled.has('media') ? c.director.mediaCount : 0,
+    includeActions: enabled.has('navigation') || enabled.has('cta'),
+    includeControls: enabled.has('cta'),
+    includeOutro: enabled.has('outro')
+  };
+}
+
+function conceptScope() {
+  const c = currentConcept();
+  const enabled = new Set(ensureConceptState().features);
+  const roles = [];
+  if (enabled.has('h1') || enabled.has('sections')) roles.push('headings');
+  if (enabled.has('media')) roles.push('media');
+  if (enabled.has('navigation')) roles.push('navigation');
+  if (enabled.has('cta')) roles.push('actions');
+  if (enabled.has('logo')) roles.push('brand');
+  return { pageLimit:c.director.pageLimit, elementLimit:c.director.elementLimit, grouping:'screen', roles:roles.length?roles:['headings','media'] };
+}
+
+function syncConceptToAdvancedControls() {
+  const c = currentConcept();
+  const scope = conceptScope();
+  if ($('#analysisPageLimitSelect')) $('#analysisPageLimitSelect').value = String([1,3,5].includes(scope.pageLimit) ? scope.pageLimit : Math.min(5,Math.max(1,scope.pageLimit)));
+  if ($('#analysisElementLimitSelect')) $('#analysisElementLimitSelect').value = String([6,10,12].includes(scope.elementLimit) ? scope.elementLimit : 6);
+  $$('[data-analysis-role]').forEach((input) => { input.checked = scope.roles.includes(input.dataset.analysisRole); });
+  if ($('#captureTemplateSelect') && c.templates[0]) $('#captureTemplateSelect').value = c.templates[0];
+}
+
+function renderConceptSummary() {
+  const c = currentConcept();
+  $('#conceptSummaryTitle').textContent = c.title;
+  $('#conceptSummaryDescription').textContent = c.description;
+  $('#conceptSummaryDuration').textContent = c.duration;
+  $('#conceptSummaryIntensity').textContent = c.intensity;
+  const req = sourceRequirements(c.id, ensureConceptState().sourceType);
+  $('#sourceRequirements').innerHTML = req.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  $('#conceptReadyTitle').textContent = `${c.title} · ${sourceTypes.find((item)=>item.id===state.concept.sourceType)?.label || '소스'}`;
+  $('#conceptReadyText').textContent = '자동 기능은 기본값으로 켜져 있습니다. 필요 없는 항목만 끄고 초안을 생성하세요.';
+}
+
+function renderConceptGrid() {
+  const root = $('#conceptGrid'); if (!root) return;
+  root.innerHTML = '';
+  concepts.forEach((c) => {
+    const button = document.createElement('button');
+    button.type='button'; button.className=`concept-card ${ensureConceptState().id===c.id?'active':''}`;
+    button.innerHTML=`<div class="concept-card-top"><span>${escapeHtml(c.badge)}</span><small>${escapeHtml(c.duration)}</small></div><strong>${escapeHtml(c.title)}</strong><p>${escapeHtml(c.description)}</p><small>${escapeHtml(c.tone)}</small>`;
+    button.addEventListener('click',()=>{
+      state.concept.id=c.id; state.concept.features=[...c.features]; state.concept.sourceType=c.preferredSource; state.concept.selectedDraft=null;
+      conceptDrafts=[]; syncConceptToAdvancedControls(); saveState(); renderConceptUI(); renderDrafts();
+    });
+    root.append(button);
+  });
+}
+
+function renderSourceTabs() {
+  const root=$('#sourceTypeTabs'); if(!root)return; root.innerHTML='';
+  sourceTypes.forEach((source)=>{
+    const b=document.createElement('button'); b.type='button'; b.className=`source-type-tab ${state.concept.sourceType===source.id?'active':''}`; b.setAttribute('role','tab'); b.setAttribute('aria-selected',String(state.concept.sourceType===source.id));
+    b.innerHTML=`<strong>${escapeHtml(source.label)}</strong><span>${escapeHtml(source.short)}</span>`;
+    b.addEventListener('click',()=>{state.concept.sourceType=source.id;state.concept.selectedDraft=null;conceptDrafts=[];saveState();renderConceptUI();renderDrafts();}); root.append(b);
+  });
+  $$('[data-source-panel]').forEach((panel)=>{panel.hidden=panel.dataset.sourcePanel!==state.concept.sourceType;});
+}
+
+function renderAutoFeatures() {
+  const root=$('#autoFeatureGrid'); if(!root)return; const enabled=new Set(state.concept.features); root.innerHTML='';
+  featureDefinitions.forEach((feature)=>{
+    const label=document.createElement('label'); label.className='auto-feature';
+    label.innerHTML=`<input type="checkbox" ${enabled.has(feature.id)?'checked':''}><span><strong>${escapeHtml(feature.label)}</strong><span>${escapeHtml(feature.description)}</span></span>`;
+    label.querySelector('input').addEventListener('change',(event)=>{
+      const set=new Set(state.concept.features); event.target.checked?set.add(feature.id):set.delete(feature.id); state.concept.features=[...set]; state.concept.selectedDraft=null; conceptDrafts=[]; syncConceptToAdvancedControls(); saveState(); renderConceptSummary(); renderDrafts();
+    }); root.append(label);
+  });
+}
+
+function renderConceptFileLists() {
+  const imageRoot=$('#conceptImageList'),videoRoot=$('#conceptVideoList');
+  if(imageRoot) imageRoot.innerHTML=pendingConceptFiles.image.length?pendingConceptFiles.image.map((f,i)=>`<span>${i+1}. ${escapeHtml(f.name)}</span>`).join(''):'<span>아직 선택된 이미지가 없습니다.</span>';
+  if(videoRoot) videoRoot.innerHTML=pendingConceptFiles.video.length?pendingConceptFiles.video.map((f,i)=>`<span>${i+1}. ${escapeHtml(f.name)}</span>`).join(''):'<span>아직 선택된 영상이 없습니다.</span>';
+}
+
+function renderConceptUI() {
+  ensureConceptState(); renderConceptGrid(); renderSourceTabs(); renderAutoFeatures(); renderConceptSummary(); renderConceptFileLists();
+  const urlInput=$('#conceptUrlInput'); if(urlInput && urlInput.value!==(state.concept.urls||'')) urlInput.value=state.concept.urls||'';
+}
+
+async function clearConceptMediaBases() {
+  const keys=conceptMediaBases.map((scene)=>scene.assetKey).filter(Boolean); conceptMediaBases=[];
+  for(const key of keys) if(!state.scenes.some((scene)=>scene.assetKey===key)) await deleteAsset(key).catch(()=>{});
+}
+
+function pseudoMediaAnalysis(scene,index,sourceType) {
+  const url=`local://${sourceType}/${index+1}`;
+  return {url,title:scene.name,headings:[scene.name],buttons:[],nav:[],documentWidth:1200,documentHeight:750,viewportWidth:1200,viewportHeight:750,scrollX:0,scrollY:0,captureMode:'viewport',geometrySource:'local-media',elements:[{id:`media-${index}`,tag:sourceType==='video'?'video':'img',role:'surface',text:scene.name,href:'',x:600,y:375,top:0,w:1080,h:620,targetX:0,targetY:0,targetTop:0,inNav:false,brand:false}]};
+}
+
+async function prepareConceptMediaBases(files,sourceType) {
+  await clearConceptMediaBases();
+  const list=[...files].filter((file)=>sourceType==='image'?file.type.startsWith('image/'):file.type.startsWith('video/'));
+  if(!list.length) throw new Error(sourceType==='image'?'이미지를 1장 이상 선택해 주세요.':'영상 파일을 1개 이상 선택해 주세요.');
+  for(let i=0;i<list.length;i++){
+    const file=list[i]; let scene;
+    if(sourceType==='video') scene=await makeVideoSceneFromBlob(file,{name:file.name.replace(/\.[^.]+$/,'')});
+    else scene=await makeImageSceneFromBlob(file,{name:file.name.replace(/\.[^.]+$/,''),sourceType:'upload'});
+    scene.sourceUrl=`local://${sourceType}/${i+1}`; scene.sourceAnalysis=pseudoMediaAnalysis(scene,i,sourceType); conceptMediaBases.push(scene);
+  }
+  directorBases=[...conceptMediaBases];
+  const scope=conceptScope(); directorPlan=createDirectorPlan(directorBases,{scope,profile:currentConceptProfile(),detail:'concept-media'}); state.directorPlan=directorPlan; saveState(); renderDirectorPlan(); renderDomAnalysis(directorBases);
+}
+
+function renderDrafts() {
+  const root=$('#draftGrid'); if(!root)return;
+  if(!conceptDrafts.length){$('#draftsSummary').textContent='아직 생성된 초안 없음';root.innerHTML='<div class="draft-empty"><strong>먼저 컨셉과 소스를 정해 주세요.</strong><p>분석이 끝나면 추천 초안 3개가 여기에 나타납니다.</p></div>';return;}
+  const c=currentConcept(); const summary=directorPlan?.pages?.length?planSummary(directorPlan):{pages:directorBases.length,beats:directorBases.length};
+  $('#draftsSummary').textContent=`${c.title} · ${conceptDrafts.length}개 초안 · ${summary.pages||directorBases.length}개 챕터`;
+  root.innerHTML='';
+  conceptDrafts.forEach((draft,index)=>{
+    const template=currentTemplates().find((item)=>item.id===draft.templateId)||builtinTemplates[0];
+    const card=document.createElement('article'); card.className=`draft-card ${index===0?'recommended':''} ${state.concept.selectedDraft===draft.id?'active':''}`;
+    const sequence=(template.sequence||[]).slice(0,5).map((item)=>motionPresets[item.motion]?.label||item.motion).filter(Boolean);
+    card.innerHTML=`<div class="draft-card-top"><span class="draft-label">${escapeHtml(draft.label)}</span><small>${escapeHtml(template.durationLabel||c.duration)}</small></div><h3>${escapeHtml(template.title)}</h3><p>${escapeHtml(template.description)}</p><div class="draft-metrics"><span>${summary.beats||0} beats</span><span>${escapeHtml(c.intensity)}</span><span>${escapeHtml(soundPresets.find((item)=>item.id===draft.audio)?.label||draft.audio)}</span></div><div class="draft-sequence">${sequence.map((item)=>`<span>${escapeHtml(item)}</span>`).join('<span>→</span>')}</div><button class="${index===0?'primary-button':'secondary-button'}" type="button">이 초안으로 시작</button>`;
+    card.querySelector('button').addEventListener('click',()=>applyConceptDraft(draft.id)); root.append(card);
+  });
+}
+
+function createConceptDrafts() {
+  conceptDrafts=draftOptions(state.concept.id); state.concept.selectedDraft=null; saveState(); renderDrafts(); location.hash='drafts';
+}
+
+async function applyConceptDraft(draftId) {
+  const draft=conceptDrafts.find((item)=>item.id===draftId); if(!draft)return;
+  state.concept.selectedDraft=draft.id; directorTemplateId=draft.templateId; state.directorTemplateId=draft.templateId; state.audio.preset=normalizeAudioPreset(draft.audio); state.aspect=draft.aspect||state.aspect;
+  const profile=currentConceptProfile(); const scope=conceptScope();
+  directorPlan=createDirectorPlan(directorBases,{scope:{...scope,pageLimit:Math.max(scope.pageLimit,directorBases.length)},profile,detail:`concept:${state.concept.id}`}); state.directorPlan=directorPlan;
+  const scenes=buildDirectorScenes();
+  if(!scenes.length){toast('초안을 만들 소스가 없습니다.','error');return;}
+  const oldKeys=state.scenes.filter((scene)=>scene.sourceType==='demo'||scene.directorRole).map((scene)=>scene.assetKey).filter(Boolean);
+  state.scenes=scenes; selectedSceneId=scenes[0].id; currentTime=0; saveState(); renderDirectorPlan(); await renderAll(); renderDrafts();
+  oldKeys.filter((key)=>!directorBases.some((base)=>base.assetKey===key)).forEach((key)=>deleteAsset(key).catch(()=>{}));
+  setCaptureStatus('추천 초안 적용 완료',`${currentConcept().title} · ${currentTemplates().find((item)=>item.id===draft.templateId)?.title||draft.templateId} · ${scenes.length}개 장면`,'success');
+  toast('초안을 적용했습니다. Flow에서 빼거나 순서만 조정한 뒤 세부 편집으로 내려가세요.'); location.hash='director';
+}
+
+async function generateConceptDrafts() {
+  const c=currentConcept(); syncConceptToAdvancedControls(); const type=state.concept.sourceType; conceptDrafts=[]; renderDrafts();
+  try{
+    $('#generateDraftsButton').disabled=true; $('#generateDraftsButton').textContent='분석 중…';
+    if(type==='url'){
+      const value=$('#conceptUrlInput').value.trim(); if(!value)throw new Error('URL을 1개 이상 입력해 주세요.'); state.concept.urls=value; saveState(); $('#urlInput').value=value; await captureUrl(true,{draftOnly:true,conceptMode:true});
+      if(!directorBases.length)throw new Error('URL 분석 결과가 없습니다.');
+    }else{
+      const files=pendingConceptFiles[type]; await prepareConceptMediaBases(files,type);
+    }
+    createConceptDrafts();
+    setCaptureStatus('추천 초안 준비 완료',`${c.title}에 맞는 3개 초안을 만들었습니다. 아직 편집 장면은 생성하지 않았습니다.`,'success');
+  }catch(error){console.error(error);toast(error.message,'error');setCaptureStatus('초안 생성 실패',error.message,'error');}
+  finally{$('#generateDraftsButton').disabled=false;$('#generateDraftsButton').textContent='분석하고 추천 초안 만들기';}
 }
 
 function semanticCues(analysis) {
@@ -1252,7 +1438,7 @@ function rebuildDirectorPlan() {
     return;
   }
   directorTemplateId = $('#captureTemplateSelect').value || directorTemplateId;
-  directorPlan = createDirectorPlan(directorBases, { scope: currentAnalysisScope() });
+  directorPlan = createDirectorPlan(directorBases, { scope: directorPlan?.scope || conceptScope(), profile: directorPlan?.profile || currentConceptProfile(), detail:'concept-rebuild' });
   state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId; saveState();
   renderDirectorPlan();
   $('#director').hidden = false;
@@ -1515,7 +1701,7 @@ async function makeVideoSceneFromBlob(blob,{name='영상 클립'}={}) {
   video.currentTime=0; return scene;
 }
 
-async function captureUrl(asStory) {
+async function captureUrl(asStory, options = {}) {
   let urls;
   try {
     urls = parseUrlList($('#urlInput').value);
@@ -1525,7 +1711,7 @@ async function captureUrl(asStory) {
     $('#urlInput').focus();
     return;
   }
-  const analysisScope = currentAnalysisScope();
+  const analysisScope = options.conceptMode ? conceptScope() : currentAnalysisScope();
   urls = asStory ? (urls.length > 1 ? urls.slice(0, 8) : urls.slice(0, analysisScope.pageLimit)) : urls.slice(0, 1);
   const requestedMode = $('#captureModeSelect').value;
   const initialMode = storyCaptureMode(urls[0], requestedMode, urls);
@@ -1577,23 +1763,25 @@ async function captureUrl(asStory) {
     if (asStory) {
       directorBases = bases;
       directorTemplateId = $('#captureTemplateSelect').value || 'impact-flow';
-      directorPlan = createDirectorPlan(bases, { scope: { ...analysisScope, pageLimit: Math.max(analysisScope.pageLimit, bases.length) } });
+      directorPlan = createDirectorPlan(bases, { scope: { ...(options.conceptMode ? conceptScope() : analysisScope), pageLimit: Math.max((options.conceptMode ? conceptScope().pageLimit : analysisScope.pageLimit), bases.length) }, profile: options.conceptMode ? currentConceptProfile() : {} });
       state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId;
-      renderDirectorPlan();
-      const autoScenes = buildDirectorScenes();
-      const old = isDemo ? [] : state.scenes.filter((scene) => !scene.directorRole);
-      state.scenes = [...old, ...autoScenes];
-      selectedSceneId = autoScenes[0]?.id || state.scenes[0]?.id || null;
-      currentTime = old.reduce((sum, scene) => sum + Number(scene.duration || 0), 0);
-      saveState();
-      await renderAll();
-      renderDomAnalysis(bases);
+      renderDirectorPlan(); renderDomAnalysis(bases); saveState();
       const summary = planSummary(directorPlan);
       const geometryCount = bases.filter((scene) => scene.sourceAnalysis?.geometrySource === 'browser-dom').length;
       const note = failures.length ? ` · ${failures.length}개 실패` : '';
-      setCaptureStatus('기본 연출안 생성 완료', `${summary.pages}개 챕터 · ${summary.beats} cinematic beats · DOM 좌표 ${geometryCount}/${bases.length} · 연결 클릭 ${summary.navigations}개${note}`, failures.length ? 'warning' : 'success');
-      toast('Target Lock 완료: 다음 URL과 정확히 연결되는 요소만 클릭합니다.');
-      location.hash = 'director';
+      if (options.draftOnly) {
+        setCaptureStatus('소스 분석 완료', `${summary.pages}개 챕터 · ${summary.beats}개 기본 비트 · DOM 좌표 ${geometryCount}/${bases.length}${note}`, failures.length ? 'warning' : 'success');
+      } else {
+        const autoScenes = buildDirectorScenes();
+        const old = isDemo ? [] : state.scenes.filter((scene) => !scene.directorRole);
+        state.scenes = [...old, ...autoScenes];
+        selectedSceneId = autoScenes[0]?.id || state.scenes[0]?.id || null;
+        currentTime = old.reduce((sum, scene) => sum + Number(scene.duration || 0), 0);
+        saveState(); await renderAll();
+        setCaptureStatus('기본 연출안 생성 완료', `${summary.pages}개 챕터 · ${summary.beats} cinematic beats · DOM 좌표 ${geometryCount}/${bases.length} · 연결 클릭 ${summary.navigations}개${note}`, failures.length ? 'warning' : 'success');
+        toast('Target Lock 완료: 다음 URL과 정확히 연결되는 요소만 클릭합니다.');
+        location.hash = 'director';
+      }
     } else {
       if (isDemo) state.scenes = [];
       state.scenes.push(...bases);
@@ -1631,6 +1819,22 @@ async function handleMediaFiles(files) {
   saveState(); await renderAll(); toast(`${list.length}개 미디어를 추가했습니다.`); location.hash='studio';
 }
 
+
+
+async function recordConceptVideo() {
+  const button=$('#conceptRecordButton');
+  if(conceptRecording){try{conceptRecording.recorder.stop();}catch{}conceptRecording.stream.getTracks().forEach((t)=>t.stop());return;}
+  if(!navigator.mediaDevices?.getDisplayMedia||!window.MediaRecorder){toast('이 브라우저에서는 화면 녹화를 지원하지 않습니다.','error');return;}
+  try{
+    const stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:false});
+    const mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find((type)=>MediaRecorder.isTypeSupported(type))||'video/webm';
+    const recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:5_000_000}); const chunks=[];
+    recorder.ondataavailable=(event)=>{if(event.data?.size)chunks.push(event.data)};
+    recorder.onstop=()=>{clearTimeout(conceptRecording?.timer);button.textContent='화면 녹화';const blob=new Blob(chunks,{type:mime});conceptRecording=null;if(blob.size){pendingConceptFiles.video=[new File([blob],`screen-${Date.now()}.webm`,{type:mime})];state.concept.sourceType='video';saveState();renderConceptUI();toast('녹화 클립을 소스로 준비했습니다. 추천 초안을 생성해 주세요.');}else toast('녹화된 데이터가 없습니다.','error');};
+    stream.getVideoTracks()[0]?.addEventListener('ended',()=>{if(recorder.state!=='inactive')recorder.stop();},{once:true});
+    recorder.start(250);conceptRecording={stream,recorder,timer:setTimeout(()=>{if(recorder.state!=='inactive'){recorder.stop();stream.getTracks().forEach((t)=>t.stop())}},30000)};button.textContent='녹화 종료';toast('화면 녹화를 시작했습니다. 최대 30초입니다.');
+  }catch(error){if(error?.name!=='NotAllowedError')toast(`화면 녹화 실패: ${error.message}`,'error');conceptRecording=null;button.textContent='화면 녹화';}
+}
 
 async function captureScreen() {
   if(!navigator.mediaDevices?.getDisplayMedia){toast('이 브라우저에서는 화면 캡처를 지원하지 않습니다.','error');return;}
@@ -1847,7 +2051,7 @@ async function importTemplateFile(file){
 }
 
 async function resetProject(){
-  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='impact-flow';selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
+  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='impact-flow';conceptDrafts=[];conceptMediaBases=[];pendingConceptFiles={image:[],video:[]};selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();renderConceptUI();renderDrafts();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
 }
 
 function bindInspector(){
@@ -1860,6 +2064,13 @@ function bindInspector(){
 
 function bindEvents(){
   $('#menuButton').addEventListener('click',()=>{const nav=$('#mobileNav');const open=nav.hidden;nav.hidden=!open;$('#menuButton').setAttribute('aria-expanded',String(open));});
+  $('#generateDraftsButton')?.addEventListener('click',generateConceptDrafts);
+  $('#conceptImageButton')?.addEventListener('click',()=>$('#conceptImageInput').click());
+  $('#conceptVideoButton')?.addEventListener('click',()=>$('#conceptVideoInput').click());
+  $('#conceptRecordButton')?.addEventListener('click',recordConceptVideo);
+  $('#conceptImageInput')?.addEventListener('change',(event)=>{pendingConceptFiles.image=[...event.target.files];state.concept.sourceType='image';state.concept.selectedDraft=null;conceptDrafts=[];saveState();renderConceptUI();renderDrafts();event.target.value='';});
+  $('#conceptVideoInput')?.addEventListener('change',(event)=>{pendingConceptFiles.video=[...event.target.files];state.concept.sourceType='video';state.concept.selectedDraft=null;conceptDrafts=[];saveState();renderConceptUI();renderDrafts();event.target.value='';});
+  $('#conceptUrlInput')?.addEventListener('input',(event)=>{state.concept.urls=event.target.value;saveState();if(state.concept.sourceType==='url'){state.concept.selectedDraft=null;conceptDrafts=[];renderDrafts();}});
   $$('#mobileNav a').forEach(a=>a.addEventListener('click',()=>{$('#mobileNav').hidden=true;$('#menuButton').setAttribute('aria-expanded','false');}));
   $('#urlStoryButton').addEventListener('click',()=>captureUrl(true)); $('#urlSingleButton').addEventListener('click',()=>captureUrl(false)); $('#urlInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();captureUrl(true);}});
   $('#useExampleUrlButton')?.addEventListener('click',()=>{ $('#urlInput').value='https://example.com/'; $('#urlInput').focus(); setCaptureStatus('예제 URL 입력됨','이제 “URL 시퀀스로 쇼릴”을 눌러 실제 캡처를 시작하세요.'); });
@@ -1900,6 +2111,7 @@ function browserSupportCheck(){
 
 async function init(){
   state=loadState();
+  ensureConceptState();
   selectedSceneId=state.scenes[0]?.id||null;
   directorPlan=state.directorPlan?.pages ? state.directorPlan : null;
   directorTemplateId=state.directorTemplateId || 'impact-flow';
@@ -1909,12 +2121,16 @@ async function init(){
     state.scenes.filter((scene)=>Number.isInteger(scene.sourcePageIndex)).forEach((scene)=>{if(!grouped.has(scene.sourcePageIndex))grouped.set(scene.sourcePageIndex,structuredClone(scene));});
     directorBases=[...grouped.entries()].sort((a,b)=>a[0]-b[0]).map(([,scene])=>scene);
     if ((Number(directorPlan.version || 0) < 4 || !Array.isArray(directorPlan.flow) || !directorPlan.flow.length) && directorBases.length) {
-      directorPlan=createDirectorPlan(directorBases,{scope:directorPlan.scope || currentAnalysisScope()});
+      directorPlan=createDirectorPlan(directorBases,{scope:directorPlan.scope || conceptScope(),profile:directorPlan.profile || currentConceptProfile(),detail:directorPlan.detail || 'concept-rebuild'});
       state.directorPlan=directorPlan;
       saveState();
     }
   }
   setupSelectOptions();
+  syncConceptToAdvancedControls();
+  renderConceptUI();
+  if (directorPlan?.pages?.length) conceptDrafts=draftOptions(state.concept.id);
+  renderDrafts();
   renderTemplateFilters();
   renderTemplates();
   renderDirectorPlan();

@@ -1,42 +1,91 @@
-# AI Expert Default Storyboard
+# MotionFrame Studio v11 — 기본 연출 기준
 
-다음 입력을 기준으로 한 v10 기본 연출 의도입니다.
+v11의 기본값은 “모션 템플릿을 먼저 고르는 것”이 아니라 **컨셉이 영상의 편집 문법을 먼저 결정하는 것**입니다.
+
+## AI 제품 리뷰 + URL
 
 ```text
-https://ko9ma7.github.io/motionframe/
-https://ko9ma7.github.io/motionframe/#capture
-https://ko9ma7.github.io/motionframe/#templates
-https://ko9ma7.github.io/motionframe/#studio
+01 Brand reveal
+02 First viewport establish
+03 H1 punch
+04 Product/UI spotlight
+05 Important section sweep
+06 Exact menu/CTA settle
+07 Cursor hover + click
+08 Next URL / hash chapter
+09 Chapter title
+10 Product/UI focus
+11 Next exact action
+12 Resolve
 ```
 
-예상 기본 길이: 약 16~18초
+페이지가 많아도 모든 요소를 보여주지 않습니다. 페이지당 2~4개 핵심 비트가 기본입니다.
 
-| Beat | Chapter | Target | Motion | Purpose |
-|---|---|---|---|---|
-| 01 | Intro | 전체 | Reveal | 제품 화면의 맥락을 1초 안에 확립 |
-| 02 | Intro | H1 | Punch Zoom | 핵심 가치 제안을 강하게 읽힘 |
-| 03 | Intro | Hero product preview | Spotlight Push | 실제 제품/UI가 있다는 신호 |
-| 04 | Intro | URL로 시작하기 | Cursor Impact → Page Impact | 다음 단계의 원인 제공 |
-| 05 | #capture | section title | Chapter Slam | 새 단계 진입을 명확히 구분 |
-| 06 | #capture | URL input surface | Spotlight Push | 사용자가 무엇을 넣는지 보여줌 |
-| 07 | #capture | Auto Director button | Cursor Impact | 입력 다음 행동을 설명 |
-| 08 | #capture | 모션 스타일 nav | Cursor Impact → Page Impact | 다음 챕터 연결 |
-| 09 | #templates | section title | Chapter Slam | 스타일 선택 단계임을 명시 |
-| 10 | #templates | Impact Product Flow | Sweep / Punch | 대표 템플릿 하나만 강조 |
-| 11 | #templates | 편집기 nav | Cursor Impact → Page Impact | 실제 편집 단계 연결 |
-| 12 | #studio | section title | Chapter Slam | 편집 단계 진입 |
-| 13 | #studio | live preview | Arc Orbit / Spotlight | 최종 제작 화면을 가장 크게 보여줌 |
-| 14 | #studio | 전체 | Resolve | 영상 마무리 |
+## 기능 투어 + URL
 
-## Director rules
+```text
+기능 제목
+→ 실제 제품 UI
+→ 관련 버튼/메뉴
+→ 행동
+→ 결과 화면
+```
 
-1. 사용자가 여러 URL을 주면 입력 순서를 스토리 순서로 우선합니다.
-2. origin + pathname이 같고 hash만 다른 URL은 같은 페이지를 반복 분석하지 않고 각각의 viewport chapter로 취급합니다.
-3. 각 chapter에서 기본 선택은 2~4개입니다. DOM 요소를 많이 보여주는 것이 목적이 아닙니다.
-4. 다음 입력 URL을 가리키는 실제 href가 있으면 그 링크/버튼을 transition trigger로 사용합니다.
-5. 현재 viewport 밖의 요소는 기본 선택하지 않습니다.
-6. 제목 → UI surface → action 순서를 우선합니다.
-7. navigation은 목적 없이 보여주지 않고 다음 chapter를 여는 경우에만 사용합니다.
-8. 같은 기능을 가리키는 중복 CTA는 하나만 사용합니다.
-9. 기본 Impact 스타일은 120~194% adaptive zoom 범위와 overshoot/recoil을 사용합니다.
-10. Scene 좌표는 결과물이며, Storyboard가 편집의 최상위 레이어입니다.
+내용보다 메뉴 탐색이 중요하지 않은 경우 메뉴 클릭 비중을 줄이고 제품 UI를 우선합니다.
+
+## 런칭 임팩트 + URL/이미지
+
+```text
+Hero hook
+→ Product punch
+→ Feature 1
+→ Feature 2
+→ CTA / Outro
+```
+
+8~15초를 기본으로 하고 컷과 Punch를 강하게 사용합니다.
+
+## 이미지 소스
+
+이미지에는 DOM 역할을 추측하지 않습니다.
+
+```text
+Image 1 · Overview
+→ Image 1 · Detail
+→ Image 2 · Focus
+→ Image 3 · Focus
+→ Resolve
+```
+
+컨셉이 Before/After라면 첫 두 이미지를 비교 대상으로 우선합니다.
+
+## 영상 소스
+
+원본 클립의 시간 흐름을 존중합니다.
+
+```text
+Clip establish
+→ mild camera emphasis
+→ next clip transition
+→ sound accent
+→ resolve
+```
+
+영상 내부에서 존재하지 않는 버튼 클릭을 가짜로 만들지 않습니다.
+
+## 자동 기능의 원칙
+
+기본은 켜져 있고 사용자가 빼는 방식입니다.
+
+- Brand
+- Overview
+- H1
+- Important sections
+- Product media
+- Exact navigation
+- CTA action
+- Natural scan
+- Outro
+- Sound
+
+URL의 클릭은 다음 입력 URL과 href가 정확히 연결되는 경우만 자동 생성합니다.

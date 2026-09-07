@@ -24,27 +24,71 @@ function score(e,page,nextUrl=''){if(SKIP_RE.test(e.text))return-100;let s={hero
 function nearestHeading(elements,analysis){const d=dims(analysis),targetY=d.captureMode==='full'?d.scrollY/d.documentHeight*100:22;const visible=elements.filter(e=>e.visible&&['hero','section'].includes(e.role));if(visible.length)return visible.map(e=>({e,d:Math.abs(e.y-targetY)})).sort((a,b)=>a.d-b.d||score(b.e,analysis.url)-score(a.e,analysis.url))[0]?.e||null;return d.captureMode==='full'?elements.filter(e=>['hero','section'].includes(e.role)).sort((a,b)=>score(b,analysis.url)-score(a,analysis.url))[0]||null:null}
 function bestSurface(elements,analysis){return elements.filter(e=>e.visible&&e.role==='media').sort((a,b)=>score(b,analysis.url)-score(a,analysis.url)||b.widthPct*b.heightPct-a.widthPct*a.heightPct)[0]||null}
 function bestAction(elements,analysis,nextUrl){if(!nextUrl)return null;const pr={cta:4,nav:3,link:2,control:1};return elements.filter(e=>e.visible&&e.href&&exactTarget(e.href,nextUrl)&&pr[e.role]).sort((a,b)=>(pr[b.role]-pr[a.role])||score(b,analysis.url,nextUrl)-score(a,analysis.url,nextUrl))[0]||null}
-function chapterCandidates(elements,analysis,nextUrl,scope){const ranked=elements.filter(e=>allowed(e,scope)).map(e=>({...e,score:score(e,analysis.url,nextUrl),position:positionLabel(e.x,e.y)})).sort((a,b)=>b.score-a.score);const selected=[];const seen=new Set();const add=e=>{if(!e||seen.has(e.id)||selected.length>=scope.elementLimit)return;seen.add(e.id);selected.push(e)};const intent=viewIntent(analysis.url,analysis.title);const title=nearestHeading(ranked,analysis),surface=bestSurface(ranked,analysis),action=bestAction(ranked,analysis,nextUrl);
-  add(title);
-  if(intent==='hero'||intent==='editor'||intent==='capture'||intent==='gallery')add(surface);
-  if(intent==='capture'){add(ranked.find(e=>e.visible&&['control','cta'].includes(e.role)&&/auto|director|분석|쇼릴|만들/.test(e.text)));}
-  if(intent==='gallery'){add(ranked.find(e=>e.visible&&e.role==='section'&&/impact|product|flow|tour|템플릿|연출/.test(e.text)));}
-  if(intent==='editor'){add(ranked.find(e=>e.visible&&['cta','control'].includes(e.role)&&/webm|export|내보내기|재생/.test(e.text)));}
-  if(!surface)add(ranked.find(e=>e.visible&&e.role==='section'&&e.id!==title?.id));
-  add(action);
-  return ranked.slice(0,Math.max(scope.elementLimit*2,10)).map(e=>({...e,selected:seen.has(e.id),behavior:e.id===action?.id?(nextUrl?'navigate':'click'):'focus',targetPageIndex:e.id===action?.id&&nextUrl?analysis.pageIndex+1:null}));
+function chapterCandidates(elements,analysis,nextUrl,scope,profile={}){
+  const ranked=elements.filter(e=>allowed(e,scope)).map(e=>({...e,score:score(e,analysis.url,nextUrl),position:positionLabel(e.x,e.y)})).sort((a,b)=>b.score-a.score);
+  const selected=[]; const seen=new Set();
+  const add=e=>{if(!e||seen.has(e.id)||selected.length>=scope.elementLimit)return;seen.add(e.id);selected.push(e)};
+  const intent=viewIntent(analysis.url,analysis.title);
+  const action=bestAction(ranked,analysis,nextUrl);
+  if(profile.includeLogo!==false && analysis.pageIndex===0) add(ranked.find(e=>e.visible&&e.role==='brand'));
+  const headings=ranked.filter(e=>e.visible&&['hero','section'].includes(e.role));
+  const primary=nearestHeading(ranked,analysis); add(primary);
+  const headingCount=clamp(Number(profile.headingCount??2),0,4);
+  headings.filter(e=>e.id!==primary?.id).slice(0,Math.max(0,headingCount-1)).forEach(add);
+  const mediaCount=clamp(Number(profile.mediaCount??1),0,3);
+  ranked.filter(e=>e.visible&&e.role==='media').slice(0,mediaCount).forEach(add);
+  if(intent==='capture' && profile.includeControls!==false) add(ranked.find(e=>e.visible&&['control','cta'].includes(e.role)&&/auto|director|분석|쇼릴|만들/.test(e.text)));
+  if(intent==='gallery') add(ranked.find(e=>e.visible&&['section','control','cta'].includes(e.role)&&/impact|product|flow|tour|템플릿|연출/.test(e.text)));
+  if(intent==='editor') add(ranked.find(e=>e.visible&&['section','control','cta'].includes(e.role)&&/preview|미리보기|webm|export|내보내기|재생/.test(e.text)));
+  if(profile.includeActions!==false) add(action);
+  if(selected.length<Math.min(scope.elementLimit,3)) ranked.filter(e=>e.visible&&!seen.has(e.id)&&!['nav','link'].includes(e.role)).slice(0,3-selected.length).forEach(add);
+  return ranked.slice(0,Math.max(scope.elementLimit*3,14)).map(e=>({...e,selected:seen.has(e.id),behavior:e.id===action?.id&&profile.includeActions!==false?(nextUrl?'navigate':'click'):'focus',targetPageIndex:e.id===action?.id&&nextUrl?analysis.pageIndex+1:null}));
 }
 function makeStep(pageIndex,action,el,extra={}){return{id:uid('beat'),pageIndex,action,elementId:el?.id||null,role:el?.role||(extra.role||action),label:clean(extra.label||el?.text||''),targetPageIndex:Number.isInteger(extra.targetPageIndex)?extra.targetPageIndex:null,impact:extra.impact||({establish:'reveal',focus:'punch',track:'track',click:'click',navigate:'navigate',resolve:'resolve'}[action]||'punch'),enabled:extra.enabled!==false,duration:Number(extra.duration||0)||null,synthetic:!!extra.synthetic}}
-function buildFlow(pages){const flow=[];pages.forEach((page,i)=>{const selected=page.elements.filter(e=>e.selected),intent=page.viewIntent,next=pages[i+1];if(i===0)flow.push(makeStep(i,'establish',null,{label:`${page.chapterLabel} · 전체`,impact:'reveal',duration:1.15}));
-    const title=selected.find(e=>['hero','section'].includes(e.role));if(title)flow.push(makeStep(i,'focus',title,{impact:i===0?'punch':'chapter',duration:i===0?1.45:1.2}));
-    const surface=selected.find(e=>e.role==='media');if(surface)flow.push(makeStep(i,'focus',surface,{impact:intent==='editor'?'orbit':'spotlight',duration:1.35}));
-    const supporting=selected.find(e=>e!==title&&e!==surface&&!['nav','link'].includes(e.role)&&e.behavior!=='navigate');if(supporting)flow.push(makeStep(i,'focus',supporting,{impact:supporting.role==='cta'?'spotlight':'sweep',duration:1.05}));
-    const nav=selected.find(e=>e.behavior==='navigate');if(next){if(nav)flow.push(makeStep(i,'navigate',nav,{targetPageIndex:i+1,impact:'navigate',duration:.95}));else flow.push(makeStep(i,'navigate',null,{label:`${next.chapterLabel}로 이동`,targetPageIndex:i+1,impact:'navigate',duration:.8,synthetic:true}));}
-  });if(pages.length)flow.push(makeStep(pages.length-1,'resolve',null,{label:'전체 흐름 마무리',impact:'resolve',duration:1.2}));return flow}
+function buildFlow(pages,profile={}){
+  const flow=[];
+  const maxBeats=clamp(Number(profile.maxBeatsPerPage??4),2,7);
+  pages.forEach((page,i)=>{
+    const selected=page.elements.filter(e=>e.selected);
+    const next=pages[i+1];
+    const local=[];
+    if(i===0 && profile.includeOverview!==false) local.push(makeStep(i,'establish',null,{label:`${page.chapterLabel} · 전체`,impact:'reveal',duration:1.05}));
+    const brand=selected.find(e=>e.role==='brand');
+    if(i===0 && brand && profile.includeLogo!==false) local.push(makeStep(i,'focus',brand,{impact:'spotlight',duration:.72}));
+    const hero=selected.find(e=>e.role==='hero');
+    if(hero && profile.includeHeadings!==false) local.push(makeStep(i,'focus',hero,{impact:i===0?'punch':'chapter',duration:i===0?1.25:1.05}));
+    const sections=selected.filter(e=>e.role==='section');
+    const media=selected.filter(e=>e.role==='media');
+    const action=selected.find(e=>e.behavior==='navigate');
+    const ordered=[...media.slice(0,Number(profile.mediaCount??1)),...sections.slice(0,Math.max(0,Number(profile.headingCount??2)-1))].sort((a,b)=>a.y-b.y);
+    ordered.forEach((el,index)=>local.push(makeStep(i,'focus',el,{impact:el.role==='media'?(index?'orbit':'spotlight'):'sweep',duration:el.role==='media'?1.25:1.0})));
+    if(next){
+      if(action && profile.includeActions!==false) local.push(makeStep(i,'navigate',action,{targetPageIndex:i+1,impact:'navigate',duration:.9}));
+      else local.push(makeStep(i,'navigate',null,{label:`${next.chapterLabel}로 이동`,targetPageIndex:i+1,impact:'navigate',duration:.72,synthetic:true}));
+    }
+    const keep=local.length<=maxBeats?local:[...local.slice(0,Math.max(1,maxBeats-1)),local.at(-1)];
+    flow.push(...keep);
+  });
+  if(pages.length && profile.includeOutro!==false) flow.push(makeStep(pages.length-1,'resolve',null,{label:'전체 흐름 마무리',impact:'resolve',duration:1.05}));
+  return flow;
+}
 function chapterLabel(url,index){try{const u=new URL(url);if(!u.hash)return index===0?'Intro':u.pathname.split('/').filter(Boolean).at(-1)||'Page';return u.hash.slice(1).replace(/[-_]+/g,' ')||`Chapter ${index+1}`}catch{return`Chapter ${index+1}`}}
-function pageFromScene(scene,pageIndex,scope,nextScene){const a=scene.sourceAnalysis||{url:scene.sourceUrl||'',title:scene.name||`페이지 ${pageIndex+1}`,elements:[]};a.pageIndex=pageIndex;const d=dims(a),raw=normalizeElements(a);const page={id:`view-${pageIndex}-${Date.now().toString(36)}`,pageIndex,title:clean(a.title||scene.name||`페이지 ${pageIndex+1}`),chapterLabel:chapterLabel(scene.sourceUrl||a.url,pageIndex),url:scene.sourceUrl||a.url||'',sourceSceneId:scene.id,viewIntent:viewIntent(scene.sourceUrl||a.url,a.title),detectedCount:raw.length,...d,elements:[]};page.elements=chapterCandidates(raw,{...a,pageIndex},nextScene?.sourceUrl||'',scope);return page}
-export function createDirectorPlan(scenes,options={}){const scope=scopeFrom(options),limited=scenes.slice(0,scope.pageLimit),pages=limited.map((scene,i)=>pageFromScene(scene,i,scope,limited[i+1]));const plan={version:10,scope,detail:options.detail||'target-lock',pages,flow:[]};plan.flow=buildFlow(pages);return plan}
-export function rebuildFlowFromSelection(plan){if(plan?.pages)plan.flow=buildFlow(plan.pages);return plan}
+function pageFromScene(scene,pageIndex,scope,nextScene,profile={}){
+  const a=scene.sourceAnalysis||{url:scene.sourceUrl||'',title:scene.name||`페이지 ${pageIndex+1}`,elements:[]};
+  a.pageIndex=pageIndex;
+  const d=dims(a),raw=normalizeElements(a);
+  const page={id:`view-${pageIndex}-${Date.now().toString(36)}`,pageIndex,title:clean(a.title||scene.name||`페이지 ${pageIndex+1}`),chapterLabel:chapterLabel(scene.sourceUrl||a.url,pageIndex),url:scene.sourceUrl||a.url||'',sourceSceneId:scene.id,viewIntent:viewIntent(scene.sourceUrl||a.url,a.title),detectedCount:raw.length,...d,elements:[]};
+  page.elements=chapterCandidates(raw,{...a,pageIndex},nextScene?.sourceUrl||'',scope,profile);
+  return page;
+}
+export function createDirectorPlan(scenes,options={}){
+  const scope=scopeFrom(options),profile=options.profile||{},limited=scenes.slice(0,scope.pageLimit);
+  const pages=limited.map((scene,i)=>pageFromScene(scene,i,scope,limited[i+1],profile));
+  const plan={version:11,scope,profile,detail:options.detail||'concept-flow',pages,flow:[]};
+  plan.flow=buildFlow(pages,profile);
+  return plan;
+}
+export function rebuildFlowFromSelection(plan){if(plan?.pages)plan.flow=buildFlow(plan.pages,plan.profile||{});return plan}
 export function toggleElementSelection(plan,pageIndex,elementId,selected){const e=plan?.pages?.[pageIndex]?.elements?.find(x=>x.id===elementId);if(!e)return plan;e.selected=Boolean(selected);return rebuildFlowFromSelection(plan)}
 export function setElementBehavior(plan,pageIndex,elementId,behavior,targetPageIndex=null){const e=plan?.pages?.[pageIndex]?.elements?.find(x=>x.id===elementId);if(!e)return plan;e.behavior=behavior;e.targetPageIndex=behavior==='navigate'?Number(targetPageIndex??pageIndex+1):null;e.selected=behavior!=='skip';return rebuildFlowFromSelection(plan)}
 export function updateFlowStep(plan,stepId,patch={}){const s=plan?.flow?.find(x=>x.id===stepId);if(!s)return plan;if(patch.action&&ACTIONS.has(patch.action))s.action=patch.action;if('targetPageIndex'in patch)s.targetPageIndex=patch.targetPageIndex===null?null:Number(patch.targetPageIndex);if('impact'in patch)s.impact=String(patch.impact||s.impact);if('enabled'in patch)s.enabled=!!patch.enabled;if('duration'in patch)s.duration=patch.duration?Number(patch.duration):null;return plan}
@@ -54,5 +98,5 @@ export function addElementToFlow(plan,pageIndex,elementId){const p=plan?.pages?.
 export function suggestInternalLinks(analysis,limit=2){return normalizeElements(analysis).filter(e=>{if(!e.href||SKIP_RE.test(e.text))return false;try{const u=new URL(e.href);return Boolean(u.hash)||!sameDoc(e.href,analysis.url)}catch{return false}}).map(e=>({...e,linkScore:score(e,analysis.url)+(e.visible?24:0)+(e.href.includes('#')?24:0)})).sort((a,b)=>b.linkScore-a.linkScore).filter((e,i,l)=>l.findIndex(x=>x.href===e.href)===i).slice(0,limit)}
 export function planSummary(plan){const f=(plan?.flow||[]).filter(x=>x.enabled!==false);return{pages:plan?.pages?.length||0,beats:f.length,navigations:f.filter(x=>x.action==='navigate').length,selected:(plan?.pages||[]).reduce((n,p)=>n+p.elements.filter(e=>e.selected).length,0)}}
 function recommendedZoom(el,action='focus'){const base={hero:158,media:168,section:154,nav:172,cta:182,link:170,control:174}[el.role]||154;const area=Math.max(1,el.widthPct*el.heightPct);let z=base;if(area>2400)z-=24;else if(area>1200)z-=14;else if(area<180)z+=8;if(action==='click'||action==='navigate')z+=8;return clamp(z,120,194)}
-function anchor(el){let x=.5;if(el.x<36)x=el.role==='hero'||el.role==='section'?.38:.34;else if(el.x>64)x=.66;let y=.5;if(el.role==='nav'||el.y<14)y=.20;else if(el.role==='hero')y=.42;else if(el.role==='media')y=.52;else if(el.y>74)y=.60;else if(el.y<34)y=.42;return{anchorX:x,anchorY:y}}
+function anchor(el){let x=.5;if(el.x<36)x=(el.role==='hero'||el.role==='section') ? .38 : .34;else if(el.x>64)x=.66;let y=.5;if(el.role==='nav'||el.y<14)y=.20;else if(el.role==='hero')y=.42;else if(el.role==='media')y=.52;else if(el.y>74)y=.60;else if(el.y<34)y=.42;return{anchorX:x,anchorY:y}}
 export function buildBeatSpecs(plan){const pages=plan?.pages||[],flow=(plan?.flow||[]).filter(s=>s.enabled!==false),out=[];flow.forEach(s=>{const p=pages[s.pageIndex];if(!p)return;const el=s.elementId?p.elements.find(e=>e.id===s.elementId):null;if(s.action==='establish'||s.action==='resolve'){out.push({pageIndex:s.pageIndex,role:s.action==='resolve'?'outro':'overview',intent:s.action,label:s.label||p.chapterLabel,x:50,y:50,zoom:100,anchorX:.5,anchorY:.5,behavior:'focus',impact:s.impact,duration:s.duration,flowStepId:s.id});return}if(!el&&s.synthetic){out.push({pageIndex:s.pageIndex,role:'overview',intent:'navigate',label:s.label,x:50,y:50,zoom:100,anchorX:.5,anchorY:.5,behavior:'navigate',impact:'navigate',duration:s.duration,targetPageIndex:s.targetPageIndex,flowStepId:s.id});return}if(!el)return;const a=anchor(el),behavior=s.action==='navigate'?'navigate':s.action==='click'?'click':'focus';out.push({pageIndex:s.pageIndex,role:el.role,intent:s.action,label:el.text,x:el.x,y:el.y,zoom:recommendedZoom(el,s.action),anchorX:a.anchorX,anchorY:a.anchorY,href:el.href,targetPageIndex:s.targetPageIndex,flowStepId:s.id,widthPct:el.widthPct,heightPct:el.heightPct,behavior,impact:s.impact,duration:s.duration})});return out}

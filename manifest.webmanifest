@@ -1,7 +1,7 @@
 {
   "name": "MotionFrame Studio",
   "short_name": "MotionFrame",
-  "description": "URL의 화면과 페이지 구조를 분석해 모션 패스·사운드가 포함된 WebM 쇼케이스 영상을 만드는 브라우저 편집기",
+  "description": "영상 컨셉을 먼저 고르고 URL·이미지·영상 소스별 추천 초안 3개를 만든 뒤 Flow와 장면을 편집하는 WebM 제작 도구",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
