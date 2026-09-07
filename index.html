@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0f18" />
   <meta name="color-scheme" content="dark" />
-  <title>MotionFrame Studio — URL에서 제품 쇼케이스 영상까지</title>
+  <title>MotionFrame Studio v3 — URL에서 연출 영상까지</title>
   <meta name="description" content="사이트 URL, 화면 캡처, 이미지로 장면을 만들고 줌·팬·커서·전환·사운드 템플릿을 적용해 WebM 쇼케이스 영상을 제작하는 GitHub Pages용 정적 웹앱." />
   <link rel="canonical" href="__SITE_URL__/" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
@@ -13,8 +13,8 @@
   <link rel="icon" href="./favicon-16x16.png" sizes="16x16" type="image/png" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <meta property="og:title" content="MotionFrame Studio — URL에서 제품 쇼케이스 영상까지" />
-  <meta property="og:description" content="URL 캡처, 연출 템플릿, 사운드 트랙, WebM 렌더링을 한 곳에서." />
+  <meta property="og:title" content="MotionFrame Studio v3 — URL에서 연출 영상까지" />
+  <meta property="og:description" content="URL 캡처, 24개 기본 연출 템플릿, 사운드 트랙, WebM 렌더링을 한 곳에서." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="__SITE_URL__/" />
   <meta property="og:image" content="__SITE_URL__/og-image.png" />
@@ -23,7 +23,7 @@
   <meta name="twitter:title" content="MotionFrame Studio" />
   <meta name="twitter:description" content="사이트 URL을 넣고, 템플릿을 적용하고, 사운드까지 더해 WebM으로 내보내세요." />
   <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
-  <link rel="stylesheet" href="./assets/styles.css" />
+  <link rel="stylesheet" href="./assets/styles.css?v=3.0.0" />
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MotionFrame Studio","applicationCategory":"MultimediaApplication","operatingSystem":"Web","url":"__SITE_URL__/","description":"사이트 URL과 이미지에서 줌, 팬, 커서, 전환, 사운드를 적용한 WebM 쇼케이스 영상을 만드는 브라우저 편집기."}</script>
 </head>
 <body>
@@ -93,13 +93,14 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
             <label><span>적용 템플릿</span><select id="captureTemplateSelect"></select></label>
           </div>
           <div class="capture-actions">
+            <button class="ghost-button" id="useExampleUrlButton" type="button">예제 URL 넣기</button>
             <button class="secondary-button" id="urlSingleButton" type="button">장면 1개로 추가</button>
             <button class="secondary-button" id="screenCaptureButton" type="button">현재 화면 한 장</button>
             <button class="secondary-button" id="screenRecordButton" type="button">화면 녹화 클립</button>
             <button class="secondary-button" id="imageUploadButton" type="button">이미지·영상 추가</button>
             <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4" multiple hidden />
           </div>
-          <p class="helper" id="captureHelper">URL은 한 줄에 하나씩 입력할 수 있습니다. 공개 사이트는 URL 캡처를, 로그인된 서비스·데스크톱 프로그램은 화면 녹화를 사용하세요. Microlink 기본 무료 요청량을 초과해도 로컬 미디어 편집은 계속 사용할 수 있습니다.</p>
+          <p class="helper" id="captureHelper">URL은 한 줄에 하나씩 입력할 수 있습니다. Ctrl/⌘ + Enter로 바로 쇼릴을 만들 수 있습니다. 공개 사이트는 Microlink를 우선 사용하고 실패 시 mShots로 한 번 더 시도합니다. 로그인된 서비스·데스크톱 프로그램은 화면 녹화를 사용하세요.</p>
         </div>
         <div class="capture-status" id="captureStatus" role="status" aria-live="polite">
           <span class="status-dot"></span><div><strong>준비됨</strong><p>URL을 입력하거나 기존 화면을 가져와 시작하세요.</p></div>
@@ -109,15 +110,19 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
 
     <section class="templates-section" id="templates" aria-labelledby="templates-title">
       <div class="section-head">
-        <div><p class="eyebrow">MOTION TEMPLATES</p><h2 id="templates-title">처음부터 만들지 말고, 연출을 불러오세요.</h2></div>
+        <div><p class="eyebrow">MOTION TEMPLATES · 24 BUILT-IN</p><h2 id="templates-title">기본 연출 24개를 바로 적용하고, 원하는 만큼 수정하세요.</h2><p class="section-subcopy">Website · Product · Cursor · Fast/Social · Calm · Mobile 용도를 나눠 준비했습니다. 아직 URL을 넣지 않았어도 템플릿을 누르면 샘플 장면으로 즉시 확인할 수 있습니다.</p></div>
         <div class="template-head-actions">
           <button class="secondary-button" id="saveTemplateButton" type="button">현재 연출 저장</button>
           <button class="secondary-button" id="importTemplateButton" type="button">템플릿 가져오기</button>
           <input id="templateFileInput" type="file" accept="application/json,.json" hidden />
         </div>
       </div>
+      <div class="template-toolbar">
+        <label class="template-search"><span class="sr-only">템플릿 검색</span><input id="templateSearchInput" type="search" placeholder="예: scroll, cursor, dashboard, mobile" autocomplete="off" /></label>
+        <strong id="templateResultCount">24개 연출</strong>
+      </div>
       <div class="template-filters" id="templateFilters" role="group" aria-label="템플릿 필터"></div>
-      <div class="template-grid" id="templateGrid"></div>
+      <div class="template-grid" id="templateGrid" aria-live="polite"></div>
     </section>
 
     <section class="studio-section" id="studio" aria-labelledby="studio-title">
@@ -203,7 +208,7 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
     </section>
   </main>
 
-  <footer class="footer"><div><strong>MotionFrame Studio</strong><span>Static-first product showcase editor</span></div><nav><a href="#capture">URL 캡처</a><a href="#templates">템플릿</a><a href="#top">맨 위로</a></nav></footer>
+  <footer class="footer"><div><strong>MotionFrame Studio</strong><span>v3.0 · 24 built-in motion templates · Static-first editor</span></div><nav><a href="#capture">URL 캡처</a><a href="#templates">템플릿</a><a href="#top">맨 위로</a></nav></footer>
 
   <div class="toast-root" id="toastRoot" aria-live="polite" aria-atomic="true"></div>
 
@@ -213,6 +218,17 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
 
   <dialog id="resetDialog" class="dialog"><form method="dialog"><div class="dialog-head"><div><p class="eyebrow">RESET</p><h2>프로젝트를 초기화할까요?</h2></div><button class="dialog-close" value="cancel" aria-label="닫기">×</button></div><p>로컬에 저장된 현재 장면과 오디오 설정을 지우고 데모 프로젝트로 되돌립니다. 저장한 사용자 템플릿은 유지됩니다.</p><div class="dialog-actions"><button class="secondary-button" value="cancel">취소</button><button class="danger-button" id="confirmResetButton" value="default">초기화</button></div></form></dialog>
 
-  <script type="module" src="./assets/app.js"></script>
+  <script>
+    window.__motionframeReady = false;
+    window.setTimeout(function () {
+      if (window.__motionframeReady) return;
+      var status = document.getElementById('captureStatus');
+      if (!status) return;
+      status.classList.add('error');
+      status.querySelector('strong').textContent = '편집기 초기화 확인 필요';
+      status.querySelector('p').textContent = 'JavaScript가 시작되지 않았습니다. 새로고침 후에도 계속되면 배포된 assets/app.js를 확인해 주세요.';
+    }, 3500);
+  </script>
+  <script type="module" src="./assets/app.js?v=3.0.0"></script>
 </body>
 </html>

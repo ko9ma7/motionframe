@@ -1,14 +1,16 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js';
-import { soundPresets, createProceduralBuffer, applyFade } from './audio.js';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=3.0.0';
+import { soundPresets, createProceduralBuffer, applyFade } from './audio.js?v=3.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const lerp = (a, b, t) => a + (b - a) * t;
 const easeInOut = (t) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-const STORAGE_KEY = 'motionframe:v2:project';
-const TEMPLATE_KEY = 'motionframe:v2:templates';
-const DB_NAME = 'motionframe-studio-v2';
+const STORAGE_KEY = 'motionframe:v3:project';
+const LEGACY_STORAGE_KEY = 'motionframe:v2:project';
+const TEMPLATE_KEY = 'motionframe:v3:templates';
+const LEGACY_TEMPLATE_KEY = 'motionframe:v2:templates';
+const DB_NAME = 'motionframe-studio-v3';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
 
@@ -20,6 +22,8 @@ let playing = false;
 let playStartStamp = 0;
 let renderRaf = 0;
 let templateFilter = 'all';
+let templateSearchQuery = '';
+let lastCaptureProvider = '';
 let exportInProgress = false;
 let previewAudio = null;
 let soundPreviewTimer = 0;
@@ -135,7 +139,7 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 2,
+    version: 3,
     aspect: '16:9',
     resolution: '1280x720',
     frameStyle: 'browser',
@@ -152,7 +156,7 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 2,
+    version: 3,
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
     frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
@@ -169,8 +173,10 @@ function sanitizeProject(project) {
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return sanitizeProject(raw ? JSON.parse(raw) : null);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
+    const project = sanitizeProject(raw ? JSON.parse(raw) : null);
+    if (!project.scenes.length) return demoProject();
+    return project;
   } catch {
     return demoProject();
   }
@@ -185,7 +191,8 @@ function saveState() {
 
 function loadCustomTemplates() {
   try {
-    const data = JSON.parse(localStorage.getItem(TEMPLATE_KEY) || '[]');
+    const raw = localStorage.getItem(TEMPLATE_KEY) || localStorage.getItem(LEGACY_TEMPLATE_KEY) || '[]';
+    const data = JSON.parse(raw);
     return Array.isArray(data) ? data : [];
   } catch { return []; }
 }
@@ -231,10 +238,9 @@ function normalizeUrl(value) {
 }
 
 function parseUrlList(value) {
-  const lines=String(value||'').split(/
-+/).map(v=>v.trim()).filter(Boolean);
-  if(!lines.length)throw new Error('사이트 URL을 입력해 주세요.');
-  return lines.slice(0,8).map(normalizeUrl);
+  const lines = String(value || '').split(/\n+/).map((item) => item.trim()).filter(Boolean);
+  if (!lines.length) throw new Error('사이트 URL을 입력해 주세요.');
+  return lines.slice(0, 8).map(normalizeUrl);
 }
 
 function sceneAssetRef(scene) { return scene.assetKey || scene.imageUrl; }
@@ -549,25 +555,66 @@ function setupSelectOptions() {
 }
 
 function renderTemplateFilters() {
-  $('#templateFilters').innerHTML='';
-  templateCategories.forEach(([id,label])=>{ const b=document.createElement('button'); b.type='button'; b.className=`template-filter ${templateFilter===id?'active':''}`; b.textContent=label; b.addEventListener('click',()=>{templateFilter=id; renderTemplates(); renderTemplateFilters();}); $('#templateFilters').append(b); });
+  const root = $('#templateFilters');
+  root.innerHTML = '';
+  const all = currentTemplates();
+  templateCategories.forEach(([id,label]) => {
+    const count = id === 'all' ? all.length : all.filter((item) => item.category === id).length;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `template-filter ${templateFilter === id ? 'active' : ''}`;
+    button.innerHTML = `<span>${escapeHtml(label)}</span><b>${count}</b>`;
+    button.addEventListener('click', () => {
+      templateFilter = id;
+      renderTemplates();
+      renderTemplateFilters();
+    });
+    root.append(button);
+  });
 }
 
 function renderTemplates() {
-  const grid=$('#templateGrid'); grid.innerHTML='';
-  const templates=currentTemplates().filter(t=>templateFilter==='all'||t.category===templateFilter);
-  templates.forEach(template=>{
-    const card=document.createElement('article'); card.className='template-card'; card.dataset.motion=template.motion || 'zoom';
-    const isCustom=String(template.id).startsWith('custom-');
-    card.innerHTML=`${isCustom?'<span class="template-custom-badge">Saved</span>':''}<div class="template-visual"><i></i></div><div class="template-meta"><span>${escapeHtml(template.category)}</span><span>${escapeHtml(template.durationLabel||`${template.sequence?.reduce((a,s)=>a+Number(s.duration||0),0).toFixed(1)} sec`)}</span></div><h3>${escapeHtml(template.title)}</h3><p>${escapeHtml(template.description||'저장한 프로젝트 연출 설정입니다.')}</p><div class="template-actions"></div>`;
-    const actions=card.querySelector('.template-actions');
-    const apply=document.createElement('button'); apply.type='button'; apply.textContent='적용'; apply.addEventListener('click',()=>applyTemplate(template)); actions.append(apply);
+  const grid = $('#templateGrid');
+  grid.innerHTML = '';
+  const query = templateSearchQuery.trim().toLowerCase();
+  const templates = currentTemplates().filter((template) => {
+    const categoryMatch = templateFilter === 'all' || template.category === templateFilter;
+    const searchMatch = !query || `${template.title} ${template.description || ''} ${template.category}`.toLowerCase().includes(query);
+    return categoryMatch && searchMatch;
+  });
+  const countEl = $('#templateResultCount');
+  if (countEl) countEl.textContent = `${templates.length}개 연출`;
+  if (!templates.length) {
+    grid.innerHTML = '<div class="template-empty"><strong>조건에 맞는 템플릿이 없습니다.</strong><span>검색어 또는 분류를 바꿔 보세요.</span></div>';
+    return;
+  }
+  templates.forEach((template, index) => {
+    const card = document.createElement('article');
+    card.className = 'template-card';
+    card.dataset.motion = template.motion || 'zoom';
+    const isCustom = String(template.id).startsWith('custom-');
+    const steps = (template.sequence || []).slice(0, 5);
+    const previewSteps = steps.map((step, stepIndex) => `<i style="--step:${stepIndex};--zoom:${Number(step.endZoom || 120)}"></i>`).join('');
+    card.innerHTML = `
+      <div class="template-visual" aria-hidden="true"><div class="template-mini-browser"><span></span><b></b><em></em></div><div class="template-motion-path">${previewSteps}</div></div>
+      <div class="template-meta"><span>${escapeHtml(template.badge || (isCustom ? 'Saved' : template.category))}</span><span>${escapeHtml(template.durationLabel || `${template.sequence?.reduce((a,item)=>a+Number(item.duration||0),0).toFixed(1)} sec`)}</span></div>
+      <h3>${String(index + 1).padStart(2,'0')}. ${escapeHtml(template.title)}</h3>
+      <p>${escapeHtml(template.description || '저장한 프로젝트 연출 설정입니다.')}</p>
+      <div class="template-sequence" aria-label="연출 단계">${steps.map((step) => `<span>${escapeHtml(motionPresets[step.motion]?.label || step.motion)}</span>`).join('')}</div>
+      <div class="template-actions"></div>`;
+    const actions = card.querySelector('.template-actions');
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'template-apply';
+    apply.textContent = '이 연출 적용';
+    apply.addEventListener('click', () => applyTemplate(template));
+    actions.append(apply);
     if (isCustom) {
       const update=document.createElement('button'); update.type='button'; update.textContent='현재 설정으로 갱신'; update.addEventListener('click',()=>updateCustomTemplate(template.id)); actions.append(update);
       const download=document.createElement('button'); download.type='button'; download.textContent='JSON'; download.addEventListener('click',()=>downloadJson(template,`${safeFileName(template.title)}.motionframe-template.json`)); actions.append(download);
       const del=document.createElement('button'); del.type='button'; del.textContent='삭제'; del.addEventListener('click',()=>deleteCustomTemplate(template.id)); actions.append(del);
     } else {
-      const clone=document.createElement('button'); clone.type='button'; clone.textContent='내 템플릿으로 복제'; clone.addEventListener('click',()=>cloneBuiltinTemplate(template)); actions.append(clone);
+      const clone=document.createElement('button'); clone.type='button'; clone.textContent='복제해서 수정'; clone.addEventListener('click',()=>cloneBuiltinTemplate(template)); actions.append(clone);
     }
     grid.append(card);
   });
@@ -592,7 +639,11 @@ function deleteCustomTemplate(id) {
 }
 
 function applyTemplate(template) {
-  if (!state.scenes.length) { toast('먼저 URL이나 이미지를 장면으로 추가해 주세요.','error'); return; }
+  if (!state.scenes.length) {
+    state = demoProject();
+    selectedSceneId = state.scenes[0]?.id || null;
+    toast('샘플 장면을 불러와 템플릿을 적용합니다. URL 캡처 후 같은 템플릿을 다시 적용할 수 있습니다.');
+  }
   const sequence=template.sequence?.length?template.sequence:[{motion:'overview',duration:2.4,transition:'crossfade'}];
   const originals=[...state.scenes]; const targetCount=Math.max(originals.length,sequence.length); const next=[];
   for(let i=0;i<targetCount;i+=1){
@@ -610,16 +661,83 @@ function saveCurrentTemplate(name,category='custom') {
   storeCustomTemplates(customs); setupSelectOptions(); templateFilter='custom'; renderTemplateFilters(); renderTemplates(); toast('현재 연출을 내 템플릿으로 저장했습니다.');
 }
 
-async function fetchUrlCapture(url, mode, viewport) {
-  const [width,height]=viewport.split('x').map(Number);
-  const params=new URLSearchParams({ url, screenshot:'true', meta:'false', embed:'screenshot.url', 'viewport.width':String(width), 'viewport.height':String(height) });
-  if(mode==='full')params.set('screenshot.fullPage','true');
-  if(width<=430){params.set('viewport.isMobile','true');params.set('viewport.hasTouch','true');}
-  const response=await fetch(`${API_ENDPOINT}?${params.toString()}`, { mode:'cors' });
-  if(!response.ok){ const detail=await response.text().catch(()=> ''); throw new Error(`URL 캡처 실패 (${response.status})${detail?`: ${detail.slice(0,120)}`:''}`); }
-  const blob=await response.blob();
-  if(!blob.type.startsWith('image/'))throw new Error('캡처 서비스가 이미지 대신 다른 응답을 반환했습니다.');
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchMicrolinkCapture(url, mode, viewport) {
+  const [width,height] = viewport.split('x').map(Number);
+  const params = new URLSearchParams({
+    url,
+    screenshot: 'true',
+    meta: 'false',
+    'screenshot.type': 'png',
+    'viewport.width': String(width),
+    'viewport.height': String(height)
+  });
+  if (mode === 'full') params.set('screenshot.fullPage', 'true');
+  if (width <= 430) {
+    params.set('viewport.isMobile', 'true');
+    params.set('viewport.hasTouch', 'true');
+  }
+  const response = await fetchWithTimeout(`${API_ENDPOINT}?${params.toString()}`, { mode: 'cors', cache: 'no-store' }, 35000);
+  if (!response.ok) throw new Error(`Microlink 응답 ${response.status}`);
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.startsWith('image/')) {
+    lastCaptureProvider = 'Microlink';
+    return response.blob();
+  }
+  const payload = await response.json();
+  if (payload.status === 'fail' || payload.status === 'error') throw new Error(payload.message || payload.data?.message || 'Microlink 캡처 실패');
+  const screenshotUrl = payload.data?.screenshot?.url || payload.screenshot?.url || payload.data?.screenshot;
+  if (!screenshotUrl || typeof screenshotUrl !== 'string') throw new Error('Microlink 응답에 screenshot URL이 없습니다.');
+  const imageResponse = await fetchWithTimeout(screenshotUrl, { mode: 'cors', cache: 'no-store' }, 25000);
+  if (!imageResponse.ok) throw new Error(`캡처 이미지 응답 ${imageResponse.status}`);
+  const blob = await imageResponse.blob();
+  if (!blob.type.startsWith('image/')) throw new Error('캡처 결과가 이미지가 아닙니다.');
+  lastCaptureProvider = 'Microlink';
   return blob;
+}
+
+async function fetchMshotsCapture(url, viewport) {
+  const [width,height] = viewport.split('x').map(Number);
+  const target = `https://s.wordpress.com/mshots/v1/${encodeURIComponent(url)}?w=${Math.min(width,1280)}&h=${Math.min(height,960)}`;
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 2600));
+      const response = await fetchWithTimeout(target, { mode: 'cors', cache: 'no-store' }, 22000);
+      if (!response.ok) throw new Error(`mShots 응답 ${response.status}`);
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/')) throw new Error('mShots 결과가 이미지가 아닙니다.');
+      lastCaptureProvider = 'WordPress mShots';
+      return blob;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('mShots 캡처 실패');
+}
+
+async function fetchUrlCapture(url, mode, viewport) {
+  const errors = [];
+  try {
+    return await fetchMicrolinkCapture(url, mode, viewport);
+  } catch (error) {
+    errors.push(`Microlink: ${error.message}`);
+  }
+  try {
+    return await fetchMshotsCapture(url, viewport);
+  } catch (error) {
+    errors.push(`mShots: ${error.message}`);
+  }
+  throw new Error(`외부 캡처 서비스가 응답하지 않았습니다. ${errors.join(' / ')} 로그인 페이지는 ‘화면 녹화 클립’을 사용하세요.`);
 }
 
 async function makeImageSceneFromBlob(blob,{name='캡처 장면',sourceType='upload',sourceUrl=''}={}) {
@@ -643,30 +761,77 @@ async function makeVideoSceneFromBlob(blob,{name='영상 클립'}={}) {
 }
 
 async function captureUrl(asStory) {
-  let urls; try{urls=parseUrlList($('#urlInput').value);}catch(err){toast(err.message,'error');$('#urlInput').focus();return;}
-  if(!asStory)urls=urls.slice(0,1);
-  const mode=$('#captureModeSelect').value, viewport=$('#viewportSelect').value;
-  setCaptureStatus('사이트를 렌더링하는 중', `${urls.length}개 URL · ${mode==='full'?'전체 페이지':'첫 화면'} 캡처`, 'loading');
-  $('#urlStoryButton').disabled=true; $('#urlSingleButton').disabled=true;
-  try{
-    const bases=[];
-    for(let i=0;i<urls.length;i+=1){
-      const url=urls[i]; setCaptureStatus(`URL 캡처 중 ${i+1}/${urls.length}`, new URL(url).hostname, 'loading');
-      const blob=await fetchUrlCapture(url,mode,viewport);
-      bases.push(await makeImageSceneFromBlob(blob,{name:new URL(url).hostname,sourceType:'url',sourceUrl:url}));
+  let urls;
+  try {
+    urls = parseUrlList($('#urlInput').value);
+  } catch (error) {
+    toast(error.message, 'error');
+    setCaptureStatus('URL을 확인해 주세요', error.message, 'error');
+    $('#urlInput').focus();
+    return;
+  }
+  if (!asStory) urls = urls.slice(0, 1);
+  const mode = $('#captureModeSelect').value;
+  const viewport = $('#viewportSelect').value;
+  const storyButton = $('#urlStoryButton');
+  const singleButton = $('#urlSingleButton');
+  const originalStoryLabel = storyButton.textContent;
+  storyButton.disabled = true;
+  singleButton.disabled = true;
+  storyButton.textContent = '캡처 중…';
+  setCaptureStatus('사이트 브라우저 캡처 시작', `${urls.length}개 URL · ${mode === 'full' ? '전체 페이지' : '첫 화면'} · 최대 35초/URL`, 'loading');
+  const bases = [];
+  const failures = [];
+  try {
+    for (let index = 0; index < urls.length; index += 1) {
+      const url = urls[index];
+      const host = new URL(url).hostname;
+      setCaptureStatus(`URL 캡처 중 ${index + 1}/${urls.length}`, `${host} · 브라우저 렌더링을 기다리는 중`, 'loading');
+      try {
+        const blob = await fetchUrlCapture(url, mode, viewport);
+        const scene = await makeImageSceneFromBlob(blob, { name: host, sourceType: 'url', sourceUrl: url });
+        bases.push(scene);
+        setCaptureStatus(`캡처 완료 ${index + 1}/${urls.length}`, `${host} · ${lastCaptureProvider}`, 'loading');
+      } catch (error) {
+        console.error(error);
+        failures.push(`${host}: ${error.message}`);
+      }
     }
-    const isDemo=state.scenes.length && state.scenes.every(s=>s.sourceType==='demo');
-    if(asStory){
-      const template=currentTemplates().find(t=>t.id===$('#captureTemplateSelect').value)||builtinTemplates[0];
-      const old=isDemo?[]:[...state.scenes]; state.scenes=bases;
+    if (!bases.length) throw new Error(failures[0] || '캡처할 수 있는 URL이 없습니다.');
+    const isDemo = state.scenes.length && state.scenes.every((scene) => scene.sourceType === 'demo');
+    if (asStory) {
+      const template = currentTemplates().find((item) => item.id === $('#captureTemplateSelect').value) || builtinTemplates[0];
+      const old = isDemo ? [] : [...state.scenes];
+      state.scenes = bases;
       applyTemplate(template);
-      if(old.length){state.scenes=[...old,...state.scenes];selectedSceneId=state.scenes[old.length]?.id||state.scenes[0]?.id;saveState();await renderAll();}
-      setCaptureStatus('URL 쇼릴 생성 완료', `${urls.length}개 URL · ${template.title} · ${state.scenes.length}개 장면`, '');
+      if (old.length) {
+        state.scenes = [...old, ...state.scenes];
+        selectedSceneId = state.scenes[old.length]?.id || state.scenes[0]?.id;
+        saveState();
+        await renderAll();
+      }
+      const note = failures.length ? ` · ${failures.length}개 URL 실패` : '';
+      setCaptureStatus('URL 쇼릴 생성 완료', `${bases.length}개 URL · ${template.title} · ${state.scenes.length}개 장면${note}`, failures.length ? 'warning' : 'success');
     } else {
-      if(isDemo)state.scenes=[]; state.scenes.push(...bases); selectedSceneId=bases[0].id; currentTime=Math.max(0,totalDuration()-bases[0].duration); saveState(); await renderAll(); setCaptureStatus('URL 캡처 완료','새 장면을 편집기에 추가했습니다.',''); location.hash='studio';
+      if (isDemo) state.scenes = [];
+      state.scenes.push(...bases);
+      selectedSceneId = bases[0].id;
+      currentTime = Math.max(0, totalDuration() - bases[0].duration);
+      saveState();
+      await renderAll();
+      setCaptureStatus('URL 캡처 완료', `${lastCaptureProvider}로 캡처한 장면을 편집기에 추가했습니다.`, 'success');
+      location.hash = 'studio';
     }
-  }catch(err){console.error(err);setCaptureStatus('URL 캡처에 실패했습니다',err.message,'error');toast(err.message,'error');}
-  finally{$('#urlStoryButton').disabled=false;$('#urlSingleButton').disabled=false;}
+    if (failures.length) toast(`${bases.length}개 성공, ${failures.length}개 실패했습니다. 성공한 장면은 편집기에 추가했습니다.`);
+  } catch (error) {
+    console.error(error);
+    setCaptureStatus('URL 캡처에 실패했습니다', error.message, 'error');
+    toast(error.message, 'error');
+  } finally {
+    storyButton.disabled = false;
+    singleButton.disabled = false;
+    storyButton.textContent = originalStoryLabel;
+  }
 }
 
 
@@ -843,7 +1008,9 @@ function bindInspector(){
 function bindEvents(){
   $('#menuButton').addEventListener('click',()=>{const nav=$('#mobileNav');const open=nav.hidden;nav.hidden=!open;$('#menuButton').setAttribute('aria-expanded',String(open));});
   $$('#mobileNav a').forEach(a=>a.addEventListener('click',()=>{$('#mobileNav').hidden=true;$('#menuButton').setAttribute('aria-expanded','false');}));
-  $('#urlStoryButton').addEventListener('click',()=>captureUrl(true)); $('#urlSingleButton').addEventListener('click',()=>captureUrl(false)); $('#urlInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();captureUrl(true);}});
+  $('#urlStoryButton').addEventListener('click',()=>captureUrl(true)); $('#urlSingleButton').addEventListener('click',()=>captureUrl(false)); $('#urlInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();captureUrl(true);}});
+  $('#useExampleUrlButton')?.addEventListener('click',()=>{ $('#urlInput').value='https://example.com/'; $('#urlInput').focus(); setCaptureStatus('예제 URL 입력됨','이제 “URL 시퀀스로 쇼릴”을 눌러 실제 캡처를 시작하세요.'); });
+  $('#templateSearchInput')?.addEventListener('input',e=>{templateSearchQuery=e.target.value;renderTemplates();});
   $('#imageUploadButton').addEventListener('click',()=>$('#imageInput').click()); $('#imageInput').addEventListener('change',e=>{handleMediaFiles(e.target.files);e.target.value='';}); $('#screenCaptureButton').addEventListener('click',captureScreen); $('#screenRecordButton').addEventListener('click',recordScreenClip);
   $('#saveTemplateButton').addEventListener('click',()=>{$('#templateNameInput').value='';$('#templateSaveDialog').showModal();setTimeout(()=>$('#templateNameInput').focus(),30);});
   $('#templateSaveForm').addEventListener('submit',e=>{e.preventDefault();const name=$('#templateNameInput').value.trim();if(!name)return;saveCurrentTemplate(name,$('#templateCategoryInput').value);$('#templateSaveDialog').close();});
@@ -866,7 +1033,25 @@ function browserSupportCheck(){
 }
 
 async function init(){
-  state=loadState(); selectedSceneId=state.scenes[0]?.id||null; setupSelectOptions(); renderTemplateFilters(); renderTemplates(); bindInspector(); bindEvents(); browserSupportCheck(); await renderAll();
+  state=loadState();
+  selectedSceneId=state.scenes[0]?.id||null;
+  setupSelectOptions();
+  renderTemplateFilters();
+  renderTemplates();
+  bindInspector();
+  bindEvents();
+  browserSupportCheck();
+  await renderAll();
+  window.__motionframeReady = true;
+  document.documentElement.classList.add('app-ready');
+  const target = location.hash ? document.querySelector(location.hash) : null;
+  if (target) requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }));
 }
 
-init().catch(err=>{console.error(err);toast(`초기화 실패: ${err.message}`,'error');});
+init().catch(err=>{
+  console.error(err);
+  const message = `초기화 실패: ${err.message}`;
+  try { toast(message,'error'); } catch {}
+  const status = document.querySelector('#captureStatus');
+  if(status){status.classList.add('error');status.querySelector('strong').textContent='앱 초기화 실패';status.querySelector('p').textContent=message;}
+});

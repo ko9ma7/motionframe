@@ -1,61 +1,61 @@
-# MotionFrame Studio — 가장 빠른 배포 방법
+# MotionFrame Studio v3 — 가장 빠른 배포 방법
 
-이 프로젝트는 **GitHub Pages에서 그대로 동작하는 정적 웹앱**입니다. Node.js, npm, 데이터베이스, 별도 빌드 서버가 없어도 됩니다.
+이 폴더는 **빌드가 필요 없는 GitHub Pages 정적 웹앱**입니다. `npm install`은 필요하지 않습니다.
 
-## 1. GitHub Repository 만들기
+## 기존 `ko9ma7/motionframe` 저장소를 업데이트하는 경우
 
-1. GitHub에서 새 Repository를 만듭니다.
-2. 예: `motionframe-studio`
-3. Public / Private 중 Pages 사용 가능한 형태를 선택합니다.
-4. 이 폴더 안의 파일을 **폴더째가 아니라 내용 전체** Repository 루트에 업로드합니다.
+1. 이 폴더 안의 파일을 모두 기존 저장소 루트에 덮어씁니다.
+2. 특히 아래 파일이 반드시 새 버전이어야 합니다.
+   - `index.html`
+   - `assets/app.js`
+   - `assets/templates.js`
+   - `assets/audio.js`
+   - `assets/styles.css`
+   - `scripts/verify.mjs`
+   - `.github/workflows/deploy.yml`
+3. GitHub에 commit / push 합니다.
+4. Repository → **Actions**에서 `Deploy MotionFrame Studio to GitHub Pages`가 성공하는지 확인합니다.
+5. Repository → **Settings → Pages**에서 Source가 **GitHub Actions**인지 확인합니다.
+6. 배포 후 `https://ko9ma7.github.io/motionframe/`에서 강력 새로고침합니다.
 
-업로드 후 저장소 루트에 최소한 아래가 보여야 합니다.
+브라우저가 이전 JavaScript를 캐시하고 있다면 `Ctrl+Shift+R` 또는 모바일 브라우저의 새로고침을 사용하세요.
 
-```text
-index.html
-assets/
-.github/
-manifest.webmanifest
-README.md
-```
+## 이번 버전에서 바로 확인할 것
 
-## 2. GitHub Pages 켜기
+### 1. 템플릿
 
-Repository에서:
+`/#templates`로 이동하면 기본 템플릿 **24개**가 보여야 합니다.
 
-```text
-Settings
-→ Pages
-→ Build and deployment
-→ Source
-→ GitHub Actions
-```
+- Website Story
+- Hero Dive
+- Landing Page Scroll
+- Section Hopper
+- CTA Finale
+- Portfolio Glide
+- Product Tour
+- Cursor Walkthrough
+- Dashboard Scan
+- Feature Spotlight
+- Form Flow
+- Settings Tour
+- Data Table Focus
+- Mobile App Demo
+- Launch Cuts
+- Quick Demo
+- Social Punch
+- Feature Trio
+- Before / After
+- Release Notes
+- Calm Showcase
+- Editorial Drift
+- Luxury Scroll
+- Slow Product Film
 
-을 선택합니다.
+장면을 아직 추가하지 않은 상태에서 템플릿을 눌러도 샘플 장면이 자동 생성되어 편집기에서 즉시 확인할 수 있습니다.
 
-`main` 브랜치에 push하면 `.github/workflows/deploy.yml`이 자동으로:
+### 2. URL 캡처
 
-1. 정적 파일 검증
-2. GitHub Pages URL 계산
-3. canonical / OG / sitemap URL 치환
-4. Pages artifact 업로드
-5. 배포
-
-를 수행합니다.
-
-배포 주소는 보통 다음과 같습니다.
-
-```text
-https://USERNAME.github.io/REPOSITORY/
-```
-
-## 3. 사용 방법
-
-### 공개 사이트
-
-`URL 캡처` 영역에 주소를 넣습니다.
-
-한 사이트의 여러 화면을 연결하려면 URL을 줄바꿈으로 입력할 수 있습니다.
+`/#capture`에서 URL을 한 줄에 하나씩 입력합니다.
 
 ```text
 https://example.com/
@@ -63,79 +63,29 @@ https://example.com/features
 https://example.com/pricing
 ```
 
-`URL 시퀀스로 쇼릴`을 누르면 선택한 템플릿을 적용해 타임라인을 만듭니다.
+그 다음:
 
-### 로그인된 웹앱 / 데스크톱 프로그램
+1. 캡처 방식 선택
+2. 뷰포트 선택
+3. 적용 템플릿 선택
+4. **URL 시퀀스로 쇼릴** 클릭
 
-외부 캡처 서비스가 로그인 세션을 알 수 없으므로 `화면 녹화 클립`을 사용합니다.
+클릭하는 순간 오른쪽 상태 패널이 `캡처 중…` 상태로 바뀌어야 합니다.
 
-브라우저에서 화면 공유 권한을 허용하고 실제 기능을 조작한 뒤 녹화를 종료하면 WebM 클립이 타임라인 장면으로 추가됩니다.
+공개 사이트는 Microlink를 우선 사용하고 실패하면 mShots를 한 번 더 시도합니다. 로그인 화면, 사내 서비스, 데스크톱 프로그램은 `화면 녹화 클립` 기능을 사용하는 것이 안정적입니다.
 
-### 템플릿
+### 3. 사운드
 
-기본 템플릿을 적용한 뒤 줌, 포커스, 커서, 전환, 길이를 수정합니다.
+편집기 오른쪽의 Sound에서 기본 사운드를 선택하거나 자신의 MP3/WAV/OGG 파일을 추가할 수 있습니다. 최종 WebM 렌더링에서는 선택한 사운드가 영상 스트림과 함께 기록됩니다.
 
-`현재 연출 저장`으로 내 템플릿을 만들 수 있으며, 저장된 템플릿은:
+## 배포 오류 확인
 
-- 다시 적용
-- 현재 설정으로 갱신
-- JSON 백업
-- 삭제
+GitHub Actions의 `Verify static app` 단계가 통과하지 않으면 배포가 중단됩니다. v3 검증은 단순 문자열 검사뿐 아니라 ES module 문법을 실제 module mode로 검사하고, HTML에 없는 DOM ID를 JavaScript가 참조하는지도 확인합니다.
 
-할 수 있습니다.
-
-### 사운드
-
-기본 트랙은 브라우저에서 직접 합성합니다.
-
-- Soft Pulse
-- Air Pad
-- Focus Grid
-- Launch Beat
-
-또는 MP3/WAV/OGG/WebM/MP4 오디오 파일을 직접 넣을 수 있습니다.
-
-### 영상 내보내기
-
-`WebM 내보내기`를 누르면 Canvas 영상 스트림과 오디오 스트림을 결합해 브라우저에서 실시간 렌더링합니다.
-
-## URL 캡처에 관해
-
-기본 URL 캡처는 Microlink 공개 API를 사용합니다.
-
-현재 공개 무료 사용량이 있으므로 별도 API key 없이 바로 시험할 수 있습니다. 다만 무료 쿼터를 넘는 규모에서 운영할 경우 **유료 API key를 GitHub Pages JavaScript에 직접 넣으면 안 됩니다.** 그때는 Cloudflare Worker 같은 아주 얇은 Serverless Proxy에 key를 보관하는 방식으로 확장하세요.
-
-URL 캡처가 막힌 사이트는 다음 대안을 사용합니다.
-
-- 화면 녹화 클립
-- 현재 화면 한 장
-- 이미지/영상 업로드
-
-## 로컬 실행
-
-ES Module을 사용하므로 `index.html` 파일을 더블클릭하는 것보다 작은 정적 서버로 여는 것을 권장합니다.
-
-Python이 있다면:
-
-```bash
-python -m http.server 8080
-```
-
-그 후:
-
-```text
-http://localhost:8080/
-```
-
-## 검증
-
-Node.js가 있다면 dependency 설치 없이 다음 검사를 실행할 수 있습니다.
+현재 포함된 검증 명령:
 
 ```bash
 node scripts/verify.mjs
-node --check assets/app.js
-node --check assets/templates.js
-node --check assets/audio.js
 ```
 
-GitHub Actions 배포 과정에서도 `verify.mjs`가 자동 실행됩니다.
+성공 시 기본 템플릿 수, 모션 프리셋 수, DOM 참조 수가 함께 출력됩니다.
