@@ -1,18 +1,20 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=4.0.0';
-import { soundPresets, createProceduralBuffer, applyFade } from './audio.js?v=4.0.0';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=5.0.0';
+import { soundPresets, createProceduralBuffer, applyFade } from './audio.js?v=5.0.0';
+import { buildBeatSpecs, createDirectorPlan, planSummary, setElementBehavior, suggestInternalLinks } from './director.js?v=5.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const lerp = (a, b, t) => a + (b - a) * t;
 const easeInOut = (t) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-const STORAGE_KEY = 'motionframe:v4:project';
-const LEGACY_STORAGE_KEY = 'motionframe:v3:project';
-const TEMPLATE_KEY = 'motionframe:v4:templates';
-const LEGACY_TEMPLATE_KEY = 'motionframe:v3:templates';
-const DB_NAME = 'motionframe-studio-v3';
+const STORAGE_KEY = 'motionframe:v5:project';
+const LEGACY_STORAGE_KEY = 'motionframe:v4:project';
+const TEMPLATE_KEY = 'motionframe:v5:templates';
+const LEGACY_TEMPLATE_KEY = 'motionframe:v4:templates';
+const DB_NAME = 'motionframe-studio-v5';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
+const DOM_FUNCTION = `({page})=>page.evaluate(()=>{let d=document.documentElement,b=document.body,W=Math.max(d.scrollWidth,b.scrollWidth),H=Math.max(d.scrollHeight,b.scrollHeight),iw=innerWidth,ih=innerHeight,a=[...document.querySelectorAll('h1,h2,h3,header a,nav a,button,[role=button],a[href],[class*=logo],[class*=brand]')];return{w:W,h:H,iw,ih,e:a.slice(0,120).map((n,i)=>{let r=n.getBoundingClientRect(),s=getComputedStyle(n),t=(n.innerText||n.textContent||n.getAttribute('aria-label')||n.querySelector('img')?.alt||'').trim().replace(/\s+/g,' ').slice(0,100);if(!t||r.width<4||r.height<4||s.display==='none'||s.visibility==='hidden')return null;return{id:'e'+i,tag:n.tagName.toLowerCase(),role:n.getAttribute('role')||'',text:t,href:n.href||'',x:r.left+r.width/2+scrollX,y:r.top+r.height/2+scrollY,top:r.top+scrollY,w:r.width,h:r.height,inNav:!!n.closest('nav'),brand:!!n.closest('header')&&!!n.matches('a,[class*=logo],[class*=brand]')}}).filter(Boolean)}})`;
 
 let dbPromise;
 let state;
@@ -36,6 +38,9 @@ let pathEditMode = 'straight';
 let pathEditing = false;
 let pathDrawing = false;
 let pathDraft = [];
+let directorPlan = null;
+let directorBases = [];
+let directorTemplateId = 'web-story';
 
 const canvas = $('#previewCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -147,10 +152,12 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 4,
+    version: 5,
     aspect: '16:9',
     resolution: '1280x720',
     frameStyle: 'browser',
+    directorPlan: null,
+    directorTemplateId: 'web-story',
     audio: { preset: 'softCorporate', volume: 42, fade: true, assetKey: null, name: '' },
     scenes: [
       baseScene({ name: '전체 화면', imageUrl: demoSvg('Automation overview', '#8da5ff', 0), duration: 2.2, sourceType: 'demo', motionPreset: 'overview' }),
@@ -164,10 +171,12 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 4,
+    version: 5,
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
     frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
+    directorPlan: project.directorPlan?.pages ? project.directorPlan : null,
+    directorTemplateId: typeof project.directorTemplateId === 'string' ? project.directorTemplateId : 'web-story',
     audio: {
       preset: normalizeAudioPreset(project.audio?.preset),
       volume: clamp(Number(project.audio?.volume ?? 42), 0, 100),
@@ -247,15 +256,40 @@ function normalizeAudioPreset(id) {
   return soundPresets.some((item) => item.id === next) ? next : 'softCorporate';
 }
 
-function normalizePageAnalysis(payload, url) {
+function normalizePageAnalysis(payload, url, captureMode = 'full') {
   const data = payload?.data || {};
   const title = String(data.title || '').replace(/\s+/g, ' ').trim();
+  const fn = data.function?.isFulfilled ? data.function.value : null;
+  const elements = Array.isArray(fn?.e) ? fn.e.map((item, index) => ({
+    id: item.id || `e${index}`,
+    tag: String(item.tag || '').toLowerCase(),
+    role: String(item.role || ''),
+    text: String(item.text || '').replace(/\s+/g, ' ').trim(),
+    href: String(item.href || ''),
+    x: Number(item.x || 0),
+    y: Number(item.y || 0),
+    top: Number(item.top || item.y || 0),
+    w: Number(item.w || 0),
+    h: Number(item.h || 0),
+    inNav: Boolean(item.inNav),
+    brand: Boolean(item.brand)
+  })).filter((item) => item.text) : [];
+  const headingsFromElements = elements.filter((item) => ['h1','h2','h3'].includes(item.tag)).map((item) => item.text);
+  const buttonsFromElements = elements.filter((item) => item.tag === 'button' || item.role === 'button' || (item.tag === 'a' && /button|btn|cta/i.test(item.role))).map((item) => item.text);
+  const navFromElements = elements.filter((item) => item.inNav && item.tag === 'a').map((item) => item.text);
   return {
     url,
     title: title || (() => { try { return new URL(url).hostname; } catch { return url; } })(),
-    headings: cleanTextArray(data.headings, 8),
-    buttons: cleanTextArray(data.buttons, 6),
-    nav: cleanTextArray(data.nav, 6)
+    headings: cleanTextArray(headingsFromElements.length ? headingsFromElements : data.headings, 12),
+    buttons: cleanTextArray(buttonsFromElements.length ? buttonsFromElements : data.buttons, 10),
+    nav: cleanTextArray(navFromElements.length ? navFromElements : data.nav, 10),
+    elements,
+    documentWidth: Number(fn?.w || 0),
+    documentHeight: Number(fn?.h || 0),
+    viewportWidth: Number(fn?.iw || 0),
+    viewportHeight: Number(fn?.ih || 0),
+    captureMode,
+    geometrySource: elements.length ? 'browser-dom' : 'semantic-fallback'
   };
 }
 
@@ -263,12 +297,14 @@ function renderDomAnalysis(scenes = []) {
   const root = $('#domAnalysis');
   const chips = $('#domAnalysisChips');
   if (!root || !chips) return;
-  const analyses = scenes.map((scene) => scene.sourceAnalysis).filter(Boolean);
+  const analyses = scenes.map((scene) => scene.sourceAnalysis).filter(Boolean).filter((item,index,list)=>list.findIndex((other)=>other.url===item.url)===index);
   if (!analyses.length) { root.hidden = true; chips.innerHTML = ''; return; }
   const titleCount = analyses.filter((item) => item.title).length;
   const headings = analyses.reduce((sum, item) => sum + item.headings.length, 0);
   const buttons = analyses.reduce((sum, item) => sum + item.buttons.length, 0);
-  chips.innerHTML = `<span><b>${titleCount}</b>페이지 제목</span><span><b>${headings}</b>헤딩</span><span><b>${buttons}</b>CTA/버튼</span>`;
+  const positioned = analyses.reduce((sum, item) => sum + (item.elements?.length || 0), 0);
+  const links = analyses.reduce((sum, item) => sum + (item.elements || []).filter((element) => element.href).length, 0);
+  chips.innerHTML = `<span><b>${titleCount}</b>페이지</span><span><b>${positioned}</b>좌표 요소</span><span><b>${links}</b>링크</span><span><b>${headings}</b>헤딩</span><span><b>${buttons}</b>버튼</span>`;
   const examples = analyses.flatMap((item) => [...item.headings.slice(0, 2), ...item.buttons.slice(0, 1)]).slice(0, 4);
   examples.forEach((text) => { const chip = document.createElement('span'); chip.textContent = text; chips.append(chip); });
   root.hidden = false;
@@ -855,10 +891,27 @@ function deleteCustomTemplate(id) {
 }
 
 function applyTemplate(template) {
+  if (directorPlan?.pages?.length && directorBases.length) {
+    directorTemplateId = template.id;
+    state.directorTemplateId = directorTemplateId;
+    const replacement = buildDirectorScenes();
+    const keep = state.scenes.filter((scene) => !scene.directorRole);
+    state.scenes = [...keep, ...replacement];
+    selectedSceneId = replacement[0]?.id || state.scenes[0]?.id || null;
+    currentTime = keep.reduce((sum, scene) => sum + Number(scene.duration || 0), 0);
+    state.aspect = template.aspect || state.aspect;
+    state.frameStyle = template.frameStyle || state.frameStyle;
+    if (template.audioPreset) state.audio.preset = normalizeAudioPreset(template.audioPreset);
+    saveState();
+    renderAll();
+    toast(`“${template.title}” 모션 스타일을 현재 Auto Director 흐름에 적용했습니다.`);
+    location.hash = 'studio';
+    return;
+  }
   if (!state.scenes.length) {
     state = demoProject();
     selectedSceneId = state.scenes[0]?.id || null;
-    toast('샘플 장면을 불러와 템플릿을 적용합니다. URL 캡처 후 같은 템플릿을 다시 적용할 수 있습니다.');
+    toast('샘플 장면을 불러와 템플릿을 적용합니다. URL 분석 후에는 콘텐츠 흐름을 유지한 채 모션 스타일만 바뀝니다.');
   }
   const sequence=template.sequence?.length?template.sequence:[{motion:'overview',duration:2.4,transition:'crossfade'}];
   const originals=[...state.scenes]; const targetCount=Math.max(originals.length,sequence.length); const next=[];
@@ -871,10 +924,175 @@ function applyTemplate(template) {
   selectedSceneId=state.scenes[0]?.id||null; currentTime=0; saveState(); renderAll(); toast(`“${template.title}” 템플릿을 적용했습니다.`); location.hash='studio';
 }
 
+
 function saveCurrentTemplate(name,category='custom') {
   const customs=loadCustomTemplates();
   customs.unshift({ id:createId('custom'), title:name, category, motion:'zoom', description:'현재 프로젝트에서 저장한 사용자 연출 템플릿.', durationLabel:`${totalDuration().toFixed(1)} sec`, aspect:state.aspect, frameStyle:state.frameStyle, audioPreset:state.audio.preset, sequence:templateSequenceFromState() });
   storeCustomTemplates(customs); setupSelectOptions(); templateFilter='custom'; renderTemplateFilters(); renderTemplates(); toast('현재 연출을 내 템플릿으로 저장했습니다.');
+}
+
+
+function directorBehaviorLabel(value) {
+  return { focus:'설명 · 줌인', click:'클릭 연출', navigate:'클릭 → 페이지 이동', skip:'사용 안 함' }[value] || value;
+}
+
+function directorRoleLabel(value) {
+  return { brand:'브랜드', hero:'제목', section:'섹션', nav:'메뉴', cta:'CTA', link:'링크', control:'버튼' }[value] || value;
+}
+
+function renderDirectorPlan() {
+  const section = $('#director');
+  const root = $('#directorFlow');
+  if (!section || !root) return;
+  if (!directorPlan?.pages?.length) {
+    section.hidden = false;
+    $('#directorSummary').textContent = '분석 전 · 기본 연출 기준';
+    root.innerHTML = `<article class="director-page-card director-empty-card">
+      <div class="director-page-head"><span class="director-page-number">01</span><div><strong>URL을 분석하면 이 기준으로 자동 구성됩니다.</strong><small>페이지 구조와 링크를 읽은 뒤 실제 제목·메뉴·버튼으로 교체됩니다.</small></div><span class="director-detected">DEFAULT</span></div>
+      <div class="director-beats"><span class="director-beat overview">전체 화면</span><i>→</i><span class="director-beat">H1 제목</span><i>→</i><span class="director-beat">핵심 기능</span><i>→</i><span class="director-beat navigate">메뉴 클릭</span><i>→</i><span class="director-beat overview">다음 페이지</span><i>→</i><span class="director-beat click">CTA 클릭</span><i>→</i><span class="director-beat overview">줌아웃</span></div>
+    </article>`;
+    return;
+  }
+  section.hidden = false;
+  const summary = planSummary(directorPlan);
+  $('#directorSummary').textContent = `${summary.pages} pages · ${summary.beats} beats · ${summary.navigations} page moves`;
+  root.innerHTML = '';
+  directorPlan.pages.forEach((page, pageIndex) => {
+    const active = page.elements.filter((element) => element.behavior !== 'skip');
+    const card = document.createElement('article');
+    card.className = 'director-page-card';
+    const stepPreview = [
+      '<span class="director-beat overview">전체</span>',
+      ...active.slice(0, 6).map((element) => `<span class="director-beat ${element.behavior}">${escapeHtml(element.behavior === 'navigate' ? `클릭 · ${element.text}` : element.text)}</span>`)
+    ].join('<i>→</i>');
+    const targetOptions = directorPlan.pages.map((target, targetIndex) => `<option value="${targetIndex}">${targetIndex + 1}. ${escapeHtml(target.title)}</option>`).join('');
+    card.innerHTML = `
+      <div class="director-page-head">
+        <span class="director-page-number">${String(pageIndex + 1).padStart(2,'0')}</span>
+        <div><strong>${escapeHtml(page.title)}</strong><small>${escapeHtml(page.url)}</small></div>
+        <span class="director-detected">DOM ${page.detectedCount}</span>
+      </div>
+      <div class="director-beats">${stepPreview}</div>
+      <details class="director-actions-detail">
+        <summary>이 페이지의 요소별 연출 지정 <b>${page.elements.length}</b></summary>
+        <div class="director-elements"></div>
+      </details>`;
+    const elementsRoot = card.querySelector('.director-elements');
+    page.elements.forEach((element) => {
+      const row = document.createElement('div');
+      row.className = `director-element-row ${element.behavior !== 'skip' ? 'active' : ''}`;
+      const canNavigate = Boolean(element.href) || ['control','cta'].includes(element.role);
+      row.innerHTML = `
+        <div class="director-element-copy"><span>${escapeHtml(directorRoleLabel(element.role))}</span><strong>${escapeHtml(element.text)}</strong>${element.href ? `<small>${escapeHtml(new URL(element.href).pathname || '/')}</small>` : '<small>텍스트 요소</small>'}</div>
+        <select class="director-behavior" aria-label="${escapeHtml(element.text)} 동작">
+          <option value="focus" ${element.behavior==='focus'?'selected':''}>설명 · 줌인</option>
+          ${canNavigate ? `<option value="click" ${element.behavior==='click'?'selected':''}>클릭 연출</option><option value="navigate" ${element.behavior==='navigate'?'selected':''}>클릭 → 페이지 이동</option>` : ''}
+          <option value="skip" ${element.behavior==='skip'?'selected':''}>사용 안 함</option>
+        </select>
+        <select class="director-target" aria-label="이동할 페이지" ${element.behavior==='navigate'?'':'hidden'}>${targetOptions}</select>`;
+      const behavior = row.querySelector('.director-behavior');
+      const target = row.querySelector('.director-target');
+      target.value = String(Number.isInteger(element.targetPageIndex) ? element.targetPageIndex : Math.min(pageIndex + 1, directorPlan.pages.length - 1));
+      behavior.addEventListener('change', () => {
+        const nextBehavior = behavior.value;
+        setElementBehavior(directorPlan, pageIndex, element.id, nextBehavior, target.value);
+        state.directorPlan = directorPlan; saveState();
+        renderDirectorPlan();
+      });
+      target.addEventListener('change', () => {
+        setElementBehavior(directorPlan, pageIndex, element.id, 'navigate', target.value);
+        state.directorPlan = directorPlan; saveState();
+        renderDirectorPlan();
+      });
+      elementsRoot.append(row);
+    });
+    root.append(card);
+  });
+}
+
+function rebuildDirectorPlan() {
+  if (!directorBases.length) {
+    toast('먼저 URL을 분석해 주세요.', 'error');
+    return;
+  }
+  directorTemplateId = $('#captureTemplateSelect').value || directorTemplateId;
+  directorPlan = createDirectorPlan(directorBases, { detail: $('#directorDetailSelect').value || 'standard' });
+  state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId; saveState();
+  renderDirectorPlan();
+  $('#director').hidden = false;
+  location.hash = 'director';
+}
+
+function buildDirectorScenes() {
+  if (!directorPlan?.pages?.length || !directorBases.length) return [];
+  const template = currentTemplates().find((item) => item.id === directorTemplateId) || builtinTemplates[0];
+  const sequence = template.sequence?.length ? template.sequence : [{ motion:'focus', duration:2.2, transition:'crossfade' }];
+  const beats = buildBeatSpecs(directorPlan);
+  const scenes = [];
+  let previous = { pageIndex: -1, x: 50, y: 10 };
+  beats.forEach((beat, index) => {
+    const base = directorBases[beat.pageIndex];
+    if (!base) return;
+    const style = sequence[index % sequence.length];
+    const samePage = previous.pageIndex === beat.pageIndex;
+    const start = samePage ? { x: previous.x, y: previous.y } : { x: 50, y: beat.role === 'overview' ? 10 : 18 };
+    const target = { x: clamp(Number(beat.x ?? 50), 4, 96), y: clamp(Number(beat.y ?? 50), 3, 97) };
+    const navigate = beat.behavior === 'navigate';
+    const clickable = navigate || beat.behavior === 'click';
+    const roleMotion = beat.role === 'overview' ? 'overview' : clickable ? 'cursorChase' : (style.motion || 'focus');
+    const mid = { x: clamp((start.x + target.x) / 2 + (index % 2 ? 3.5 : -3.5), 4, 96), y: clamp((start.y + target.y) / 2, 3, 97) };
+    const motionPath = Math.hypot(target.x - start.x, target.y - start.y) > 18 ? [start, mid, target] : [start, target];
+    const scene = structuredClone(base);
+    scene.id = createId('scene');
+    const label = navigate ? `클릭 · ${beat.label}` : beat.label;
+    const duration = beat.role === 'overview' ? 1.45 : clickable ? 1.65 : clamp(Number(style.duration || 2.2), 1.5, 3.4);
+    scenes.push(hydrateMotion(scene, roleMotion, {
+      id: scene.id,
+      name: label,
+      duration,
+      transition: navigate ? 'zoom-out' : (beat.role === 'outro' ? 'crossfade' : style.transition || 'crossfade'),
+      startX: start.x,
+      startY: start.y,
+      endX: target.x,
+      endY: target.y,
+      startZoom: beat.role === 'overview' ? 100 : samePage ? Math.max(108, Math.min(Number(beat.zoom || 126) - 12, 132)) : 100,
+      endZoom: Number(beat.zoom || 126),
+      motionPath,
+      pathType: motionPath.length > 2 ? 'curve' : 'straight',
+      cursorEnabled: clickable,
+      cursorFollowPath: clickable,
+      cursorX: target.x,
+      cursorY: target.y,
+      directorRole: beat.role,
+      directorBehavior: beat.behavior,
+      directorHref: beat.href || '',
+      directorTargetPageIndex: beat.targetPageIndex ?? null,
+      sourcePageIndex: beat.pageIndex
+    }));
+    previous = { pageIndex: beat.pageIndex, x: target.x, y: target.y };
+  });
+  state.aspect = template.aspect || state.aspect;
+  state.frameStyle = template.frameStyle || state.frameStyle;
+  if (template.audioPreset) state.audio.preset = normalizeAudioPreset(template.audioPreset);
+  return scenes.slice(0, 32);
+}
+
+async function applyDirectorPlan() {
+  const scenes = buildDirectorScenes();
+  if (!scenes.length) {
+    toast('적용할 자동 연출안이 없습니다.', 'error');
+    return;
+  }
+  const keep = state.scenes.filter((scene) => scene.sourceType !== 'demo' && !scene.directorRole && !directorBases.some((base) => base.id === scene.id));
+  state.scenes = [...keep, ...scenes];
+  selectedSceneId = scenes[0]?.id || state.scenes[0]?.id || null;
+  currentTime = keep.reduce((sum, scene) => sum + Number(scene.duration || 0), 0);
+  saveState();
+  await renderAll();
+  const summary = planSummary(directorPlan);
+  setCaptureStatus('Auto Director 적용 완료', `${summary.pages}개 페이지 · ${summary.beats}개 기본 장면 · 링크 이동 ${summary.navigations}개`, 'success');
+  toast('페이지 구조와 링크 흐름을 편집기에 적용했습니다.');
+  location.hash = 'studio';
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
@@ -900,6 +1118,7 @@ async function fetchMicrolinkCapture(url, mode, viewport) {
     'data.buttons.attr': 'text',
     'data.nav.selectorAll': 'nav a',
     'data.nav.attr': 'text',
+    function: DOM_FUNCTION,
     'screenshot.type': 'png',
     'viewport.width': String(width),
     'viewport.height': String(height)
@@ -925,7 +1144,7 @@ async function fetchMicrolinkCapture(url, mode, viewport) {
   const blob = await imageResponse.blob();
   if (!blob.type.startsWith('image/')) throw new Error('캡처 결과가 이미지가 아닙니다.');
   lastCaptureProvider = 'Microlink';
-  return { blob, analysis: normalizePageAnalysis(payload, url) };
+  return { blob, analysis: normalizePageAnalysis(payload, url, mode) };
 }
 
 async function fetchMshotsCapture(url, viewport) {
@@ -996,26 +1215,42 @@ async function captureUrl(asStory) {
   if (!asStory) urls = urls.slice(0, 1);
   const mode = $('#captureModeSelect').value;
   const viewport = $('#viewportSelect').value;
+  const autoFollow = asStory && urls.length === 1 && Boolean($('#autoFollowInput')?.checked);
   const storyButton = $('#urlStoryButton');
   const singleButton = $('#urlSingleButton');
   const originalStoryLabel = storyButton.textContent;
   storyButton.disabled = true;
   singleButton.disabled = true;
-  storyButton.textContent = '캡처 중…';
-  setCaptureStatus('사이트 브라우저 캡처 시작', `${urls.length}개 URL · ${mode === 'full' ? '전체 페이지' : '첫 화면'} · 최대 35초/URL`, 'loading');
+  storyButton.textContent = '분석 중…';
+  setCaptureStatus('사이트 구조 분석 시작', `${urls.length}개 URL · DOM 좌표 + 링크 + ${mode === 'full' ? '전체 페이지 캡처' : '첫 화면 캡처'}`, 'loading');
   const bases = [];
   const failures = [];
+  const queue = [...urls];
+  const queued = new Set(queue);
+  const originalOrigin = new URL(queue[0]).origin;
   try {
-    for (let index = 0; index < urls.length; index += 1) {
-      const url = urls[index];
+    for (let index = 0; index < queue.length; index += 1) {
+      const url = queue[index];
       const host = new URL(url).hostname;
-      setCaptureStatus(`URL 캡처 중 ${index + 1}/${urls.length}`, `${host} · 브라우저 렌더링을 기다리는 중`, 'loading');
+      setCaptureStatus(`페이지 분석 ${index + 1}/${queue.length}`, `${host} · 화면과 DOM 좌표를 함께 읽는 중`, 'loading');
       try {
         const result = await fetchUrlCapture(url, mode, viewport);
         const sceneName = result.analysis?.title || host;
         const scene = await makeImageSceneFromBlob(result.blob, { name: sceneName, sourceType: 'url', sourceUrl: url, analysis: result.analysis });
         bases.push(scene);
-        setCaptureStatus(`캡처 완료 ${index + 1}/${urls.length}`, `${host} · ${lastCaptureProvider}`, 'loading');
+        if (autoFollow && result.analysis && queue.length < 3) {
+          const suggestion = suggestInternalLinks(result.analysis, 6)
+            .filter((item) => {
+              try { return new URL(item.href).origin === originalOrigin; } catch { return false; }
+            })
+            .find((item) => !queued.has(item.href));
+          if (suggestion) {
+            queue.push(suggestion.href);
+            queued.add(suggestion.href);
+            setCaptureStatus('다음 핵심 링크 발견', `${suggestion.text} → ${new URL(suggestion.href).pathname || '/'} 페이지를 이어서 분석합니다.`, 'loading');
+          }
+        }
+        setCaptureStatus(`페이지 분석 완료 ${index + 1}/${queue.length}`, `${sceneName} · ${result.analysis?.elements?.length || 0}개 DOM 요소 · ${lastCaptureProvider}`, 'loading');
       } catch (error) {
         console.error(error);
         failures.push(`${host}: ${error.message}`);
@@ -1024,25 +1259,25 @@ async function captureUrl(asStory) {
     if (!bases.length) throw new Error(failures[0] || '캡처할 수 있는 URL이 없습니다.');
     const isDemo = state.scenes.length && state.scenes.every((scene) => scene.sourceType === 'demo');
     if (asStory) {
-      const template = currentTemplates().find((item) => item.id === $('#captureTemplateSelect').value) || builtinTemplates[0];
-      const old = isDemo ? [] : [...state.scenes];
-      const structured = bases.some((scene) => scene.sourceAnalysis && (scene.sourceAnalysis.headings.length || scene.sourceAnalysis.buttons.length));
-      state.scenes = structured ? buildSemanticStory(bases, template) : bases;
-      if (!structured) applyTemplate(template);
-      else {
-        state.aspect=template.aspect||state.aspect; state.frameStyle=template.frameStyle||state.frameStyle; if(template.audioPreset)state.audio.preset=normalizeAudioPreset(template.audioPreset);
-        selectedSceneId=state.scenes[0]?.id||null; currentTime=0; saveState(); await renderAll(); location.hash='studio';
-      }
-      if (old.length) {
-        state.scenes = [...old, ...state.scenes];
-        selectedSceneId = state.scenes[old.length]?.id || state.scenes[0]?.id;
-        saveState();
-        await renderAll();
-      }
+      directorBases = bases;
+      directorTemplateId = $('#captureTemplateSelect').value || 'web-story';
+      directorPlan = createDirectorPlan(bases, { detail: $('#directorDetailSelect').value || 'standard' });
+      state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId;
+      renderDirectorPlan();
+      const autoScenes = buildDirectorScenes();
+      const old = isDemo ? [] : state.scenes.filter((scene) => !scene.directorRole);
+      state.scenes = [...old, ...autoScenes];
+      selectedSceneId = autoScenes[0]?.id || state.scenes[0]?.id || null;
+      currentTime = old.reduce((sum, scene) => sum + Number(scene.duration || 0), 0);
+      saveState();
+      await renderAll();
       renderDomAnalysis(bases);
-      const note = failures.length ? ` · ${failures.length}개 URL 실패` : '';
-      const structureNote = structured ? ' · DOM 구조 기반 장면' : ' · 캡처 기반 장면';
-      setCaptureStatus('URL 쇼릴 생성 완료', `${bases.length}개 URL · ${template.title} · ${state.scenes.length}개 장면${structureNote}${note}`, failures.length ? 'warning' : 'success');
+      const summary = planSummary(directorPlan);
+      const geometryCount = bases.filter((scene) => scene.sourceAnalysis?.geometrySource === 'browser-dom').length;
+      const note = failures.length ? ` · ${failures.length}개 실패` : '';
+      setCaptureStatus('기본 연출안 생성 완료', `${summary.pages}개 페이지 · ${summary.beats} beats · 실제 DOM 좌표 ${geometryCount}/${bases.length} · 링크 이동 ${summary.navigations}개${note}`, failures.length ? 'warning' : 'success');
+      toast('기본 스토리보드를 자동 생성했습니다. 링크별 동작을 확인하거나 바로 편집할 수 있습니다.');
+      location.hash = 'director';
     } else {
       if (isDemo) state.scenes = [];
       state.scenes.push(...bases);
@@ -1051,13 +1286,13 @@ async function captureUrl(asStory) {
       saveState();
       await renderAll();
       renderDomAnalysis(bases);
-      setCaptureStatus('URL 캡처 완료', `${lastCaptureProvider}로 화면을 캡처하고 페이지 구조를 함께 분석했습니다.`, 'success');
+      setCaptureStatus('URL 캡처 완료', `${lastCaptureProvider}로 화면과 페이지 구조를 가져왔습니다.`, 'success');
       location.hash = 'studio';
     }
-    if (failures.length) toast(`${bases.length}개 성공, ${failures.length}개 실패했습니다. 성공한 장면은 편집기에 추가했습니다.`);
+    if (failures.length) toast(`${bases.length}개 성공, ${failures.length}개 실패했습니다. 성공한 페이지로 계속 구성했습니다.`);
   } catch (error) {
     console.error(error);
-    setCaptureStatus('URL 캡처에 실패했습니다', error.message, 'error');
+    setCaptureStatus('URL 분석에 실패했습니다', error.message, 'error');
     toast(error.message, 'error');
   } finally {
     storyButton.disabled = false;
@@ -1214,7 +1449,7 @@ function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const type=
 async function exportProject(){
   const keys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; const assets={};
   for(const key of keys){const blob=await getAsset(key);if(blob)assets[key]={type:blob.type,data:await blobToDataUrl(blob)};}
-  downloadJson({kind:'motionframe-project',version:4,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
+  downloadJson({kind:'motionframe-project',version:5,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
 }
 
 async function importProjectFile(file){
@@ -1226,7 +1461,7 @@ async function importTemplateFile(file){
 }
 
 async function resetProject(){
-  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
+  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='web-story';selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
 }
 
 function bindInspector(){
@@ -1243,6 +1478,7 @@ function bindEvents(){
   $('#urlStoryButton').addEventListener('click',()=>captureUrl(true)); $('#urlSingleButton').addEventListener('click',()=>captureUrl(false)); $('#urlInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();captureUrl(true);}});
   $('#useExampleUrlButton')?.addEventListener('click',()=>{ $('#urlInput').value='https://example.com/'; $('#urlInput').focus(); setCaptureStatus('예제 URL 입력됨','이제 “URL 시퀀스로 쇼릴”을 눌러 실제 캡처를 시작하세요.'); });
   $('#templateSearchInput')?.addEventListener('input',e=>{templateSearchQuery=e.target.value;renderTemplates();});
+  $('#rebuildDirectorButton')?.addEventListener('click',rebuildDirectorPlan); $('#applyDirectorButton')?.addEventListener('click',applyDirectorPlan); $('#directorDetailSelect')?.addEventListener('change',()=>{ if(directorBases.length) rebuildDirectorPlan(); });
   bindPathEditor();
   $('#imageUploadButton').addEventListener('click',()=>$('#imageInput').click()); $('#imageInput').addEventListener('change',e=>{handleMediaFiles(e.target.files);e.target.value='';}); $('#screenCaptureButton').addEventListener('click',captureScreen); $('#screenRecordButton').addEventListener('click',recordScreenClip);
   $('#saveTemplateButton').addEventListener('click',()=>{$('#templateNameInput').value='';$('#templateSaveDialog').showModal();setTimeout(()=>$('#templateNameInput').focus(),30);});
@@ -1268,9 +1504,17 @@ function browserSupportCheck(){
 async function init(){
   state=loadState();
   selectedSceneId=state.scenes[0]?.id||null;
+  directorPlan=state.directorPlan?.pages ? state.directorPlan : null;
+  directorTemplateId=state.directorTemplateId || 'web-story';
+  if(directorPlan){
+    const grouped=new Map();
+    state.scenes.filter((scene)=>Number.isInteger(scene.sourcePageIndex)).forEach((scene)=>{if(!grouped.has(scene.sourcePageIndex))grouped.set(scene.sourcePageIndex,structuredClone(scene));});
+    directorBases=[...grouped.entries()].sort((a,b)=>a[0]-b[0]).map(([,scene])=>scene);
+  }
   setupSelectOptions();
   renderTemplateFilters();
   renderTemplates();
+  renderDirectorPlan();
   bindInspector();
   bindEvents();
   browserSupportCheck();

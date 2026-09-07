@@ -5,26 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0f18" />
   <meta name="color-scheme" content="dark" />
-  <title>MotionFrame Studio v4 — URL에서 연출 영상까지</title>
-  <meta name="description" content="사이트 URL의 화면과 페이지 구조를 함께 분석하고, 시각적 모션 패스와 사운드를 적용해 WebM 쇼케이스 영상을 제작하는 GitHub Pages용 브라우저 편집기." />
+  <title>MotionFrame Studio v5 — URL 흐름을 읽고 연출하는 Auto Director</title>
+  <meta name="description" content="사이트 URL의 실제 DOM 위치와 링크 관계를 분석해 페이지별 설명·클릭·전환 흐름을 자동 기획하고, 모션·사운드를 편집해 WebM으로 만드는 GitHub Pages용 Auto Director." />
   <link rel="canonical" href="__SITE_URL__/" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="icon" href="./favicon-32x32.png" sizes="32x32" type="image/png" />
   <link rel="icon" href="./favicon-16x16.png" sizes="16x16" type="image/png" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <meta property="og:title" content="MotionFrame Studio v4 — URL에서 연출 영상까지" />
-  <meta property="og:description" content="DOM 구조 기반 URL 장면 구성, 24개 연출 템플릿, 직접 그리는 모션 패스, 사운드와 WebM 렌더링을 한 곳에서." />
+  <meta property="og:title" content="MotionFrame Studio v5 — URL 흐름을 읽고 연출하는 Auto Director" />
+  <meta property="og:description" content="실제 DOM 좌표와 링크 관계 기반 Auto Director, 페이지별 클릭 동작 편집, 모션 템플릿, 사운드와 WebM 렌더링." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="__SITE_URL__/" />
   <meta property="og:image" content="__SITE_URL__/og-image.png" />
   <meta property="og:site_name" content="MotionFrame Studio" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="MotionFrame Studio" />
-  <meta name="twitter:description" content="사이트 URL의 제목·헤딩·CTA 흐름을 장면으로 만들고, 직접 경로를 그려 사운드와 함께 WebM으로 내보내세요." />
+  <meta name="twitter:description" content="페이지 제목·섹션·메뉴·CTA의 실제 위치를 읽어 기본 연출 흐름을 만들고, 링크별 동작을 수정한 뒤 WebM으로 내보내세요." />
   <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
-  <link rel="stylesheet" href="./assets/styles.css?v=4.0.0" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MotionFrame Studio","applicationCategory":"MultimediaApplication","operatingSystem":"Web","url":"__SITE_URL__/","description":"사이트 URL의 화면과 페이지 구조를 분석하고 시각적 모션 패스, 커서, 전환, 사운드를 적용한 WebM 쇼케이스 영상을 만드는 브라우저 편집기."}</script>
+  <link rel="stylesheet" href="./assets/styles.css?v=5.0.0" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"MotionFrame Studio","applicationCategory":"MultimediaApplication","operatingSystem":"Web","url":"__SITE_URL__/","description":"사이트 URL의 실제 DOM 좌표와 링크 관계를 분석해 페이지 이동까지 포함한 기본 연출안을 만들고 WebM으로 렌더링하는 브라우저 Auto Director."}</script>
 </head>
 <body>
   <a class="skip-link" href="#studio">편집기로 바로 이동</a>
@@ -35,8 +35,9 @@
       <span class="brand-copy"><strong>MotionFrame</strong><small>Studio</small></span>
     </a>
     <nav class="desktop-nav" aria-label="주요 메뉴">
-      <a href="#capture">URL 캡처</a>
-      <a href="#templates">템플릿</a>
+      <a href="#capture">URL 분석</a>
+      <a href="#director">Auto Director</a>
+      <a href="#templates">모션 스타일</a>
       <a href="#studio">편집기</a>
     </nav>
     <div class="top-actions">
@@ -47,16 +48,16 @@
     </div>
   </header>
   <nav class="mobile-nav" id="mobileNav" hidden aria-label="모바일 메뉴">
-    <a href="#capture">URL 캡처</a><a href="#templates">템플릿</a><a href="#studio">편집기</a>
+    <a href="#capture">URL 분석</a><a href="#director">Auto Director</a><a href="#templates">모션 스타일</a><a href="#studio">편집기</a>
     <button id="mobileProjectExportButton" type="button">프로젝트 백업</button>
   </nav>
 
   <main id="top">
     <section class="hero">
       <div class="hero-copy">
-        <p class="hero-kicker">URL → MOTION → SOUND → WEBM</p>
+        <p class="hero-kicker">URL → DIRECT → MOTION → SOUND → WEBM</p>
         <h1>사이트를 넣고,<br />연출을 고르고,<br />영상으로 끝냅니다.</h1>
-        <p>URL을 캡처해 장면으로 만들고, 미리 만든 연출 템플릿을 적용한 다음 필요한 부분만 직접 수정하세요. 기본 사운드 또는 내 음악을 넣고 WebM으로 내보낼 수 있습니다.</p>
+        <p>페이지의 실제 제목·기능 섹션·메뉴·CTA 위치와 링크 관계를 읽어 기본 스토리보드를 먼저 만듭니다. 어떤 메뉴를 클릭해 어느 페이지로 넘어갈지 확인한 뒤 모션 스타일과 사운드를 다듬어 WebM으로 내보냅니다.</p>
         <div class="hero-actions">
           <a class="primary-button" href="#capture">URL로 시작하기</a>
           <a class="secondary-button" href="#templates">템플릿 보기</a>
@@ -85,13 +86,15 @@
             <textarea id="urlInput" rows="3" placeholder="https://example.com
 https://example.com/features
 https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby="captureHelper"></textarea>
-            <button class="primary-button" id="urlStoryButton" type="button">URL 시퀀스로 쇼릴</button>
+            <button class="primary-button" id="urlStoryButton" type="button">Auto Director로 쇼릴 만들기</button>
           </div>
-          <div class="capture-options">
-            <label><span>캡처 방식</span><select id="captureModeSelect"><option value="full">전체 페이지</option><option value="viewport">첫 화면만</option></select></label>
+          <div class="capture-options capture-options-v5">
+            <label><span>캡처 방식</span><select id="captureModeSelect"><option value="full">전체 페이지 · 권장</option><option value="viewport">첫 화면만</option></select></label>
             <label><span>뷰포트</span><select id="viewportSelect"><option value="1440x1000">Desktop · 1440</option><option value="1024x768">Laptop · 1024</option><option value="768x1024">Tablet · 768</option><option value="390x844">Mobile · 390</option></select></label>
-            <label><span>적용 템플릿</span><select id="captureTemplateSelect"></select></label>
+            <label><span>기본 연출 밀도</span><select id="directorDetailSelect"><option value="compact">간결 · 페이지당 핵심 1개</option><option value="standard" selected>표준 · 페이지당 핵심 2개</option><option value="detailed">상세 · 페이지당 핵심 4개</option></select></label>
+            <label><span>모션 스타일</span><select id="captureTemplateSelect"></select></label>
           </div>
+          <label class="auto-follow-line"><input id="autoFollowInput" type="checkbox" checked /><span><strong>입력 URL이 1개면 내부 핵심 링크 2개까지 자동 분석</strong><small>기능·제품·가격·데모 같은 같은 사이트 링크를 우선 따라가며 최대 3페이지 흐름을 만듭니다.</small></span></label>
           <div class="capture-actions">
             <button class="ghost-button" id="useExampleUrlButton" type="button">예제 URL 넣기</button>
             <button class="secondary-button" id="urlSingleButton" type="button">장면 1개로 추가</button>
@@ -100,7 +103,7 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
             <button class="secondary-button" id="imageUploadButton" type="button">이미지·영상 추가</button>
             <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4" multiple hidden />
           </div>
-          <p class="helper" id="captureHelper">URL은 한 줄에 하나씩 입력할 수 있습니다. Ctrl/⌘ + Enter로 바로 쇼릴을 만들 수 있습니다. Microlink 캡처에서는 페이지 제목·h1/h2/h3·CTA/버튼 텍스트를 함께 읽어 기본 장면 흐름을 만듭니다. 구조 분석이 불가능하면 캡처 기반 흐름으로 자동 전환합니다.</p>
+          <p class="helper" id="captureHelper">URL은 한 줄에 하나씩 입력할 수 있습니다. Ctrl/⌘ + Enter로 바로 쇼릴을 만들 수 있습니다. Microlink 브라우저에서 제목·헤딩·메뉴·버튼·링크의 실제 화면 좌표와 href를 함께 읽습니다. 다음 페이지와 연결되는 링크가 있으면 커서 이동 → 클릭 → 다음 페이지 진입까지 기본 연출안에 자동 연결합니다.</p>
           <div class="dom-analysis" id="domAnalysis" hidden><strong>페이지 구조 분석</strong><div id="domAnalysisChips"></div></div>
         </div>
         <div class="capture-status" id="captureStatus" role="status" aria-live="polite">
@@ -109,9 +112,19 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
       </div>
     </section>
 
+
+    <section class="director-section" id="director" aria-labelledby="director-title">
+      <div class="section-head director-head">
+        <div><p class="eyebrow">AUTO DIRECTOR</p><h2 id="director-title">페이지를 보고, 무엇을 어떻게 보여줄지 먼저 구성합니다.</h2><p class="section-subcopy">템플릿보다 먼저 콘텐츠 흐름을 결정합니다. 각 페이지의 제목·기능 섹션·메뉴·CTA 위치와 링크 관계를 분석해 기본 스토리보드를 만들고, 링크마다 설명/클릭/다음 페이지 이동 여부를 바꿀 수 있습니다.</p></div>
+        <div class="director-head-actions"><span id="directorSummary">0 pages · 0 beats</span><button class="secondary-button" id="rebuildDirectorButton" type="button">기본 연출 다시 만들기</button><button class="primary-button" id="applyDirectorButton" type="button">이 흐름으로 편집</button></div>
+      </div>
+      <div class="director-flow" id="directorFlow"></div>
+      <p class="director-note" id="directorNote">기본값: 페이지 전체 → 히어로/제목 → 핵심 섹션 → 다음 페이지로 가는 메뉴/버튼 클릭 → 다음 페이지 설명 → 마지막 CTA → 전체 줌아웃.</p>
+    </section>
+
     <section class="templates-section" id="templates" aria-labelledby="templates-title">
       <div class="section-head">
-        <div><p class="eyebrow">MOTION PRESETS · 24 BUILT-IN</p><h2 id="templates-title">템플릿은 작게 훑고, 바로 적용하세요.</h2><p class="section-subcopy">한 화면을 크게 차지하지 않도록 가로형 라이브러리로 줄였습니다. 검색·분류 후 카드를 눌러 즉시 적용하고, 필요하면 복제해 내 템플릿으로 저장할 수 있습니다.</p></div>
+        <div><p class="eyebrow">MOTION PRESETS · 24 BUILT-IN</p><h2 id="templates-title">모션 템플릿은 자동 연출안의 움직임 스타일만 바꿉니다.</h2><p class="section-subcopy">Auto Director가 무엇을 보여줄지 정한 뒤, 여기서는 빠르게/차분하게/스크롤 중심처럼 카메라 톤만 선택합니다. 콘텐츠 순서와 페이지 연결 기준은 유지됩니다.</p></div>
         <div class="template-head-actions">
           <button class="secondary-button" id="saveTemplateButton" type="button">현재 연출 저장</button>
           <button class="secondary-button" id="importTemplateButton" type="button">템플릿 가져오기</button>
@@ -221,14 +234,14 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
     <section class="notes-section">
       <div><p class="eyebrow">HOW IT WORKS</p><h2>정적 사이트이지만, 제작 흐름은 실제로 동작합니다.</h2></div>
       <div class="notes-grid">
-        <article><span>01</span><h3>URL 캡처</h3><p>공개 URL을 서버 측 브라우저로 렌더링하고 페이지 제목·헤딩·버튼 텍스트를 함께 읽습니다. 전체 페이지 캡처 한 장을 DOM 흐름에 맞춰 여러 카메라 장면으로 재사용합니다.</p></article>
-        <article><span>02</span><h3>템플릿 편집</h3><p>기본 템플릿을 적용한 뒤 줌·포커스·커서·전환을 수정하고, 현재 결과를 내 템플릿으로 로컬 저장하거나 JSON으로 백업할 수 있습니다.</p></article>
-        <article><span>03</span><h3>오디오 포함 렌더링</h3><p>내장 생성형 사운드 또는 업로드한 오디오를 Canvas 영상 스트림과 결합해 브라우저에서 WebM으로 기록합니다.</p></article>
+        <article><span>01</span><h3>DOM + 링크 분석</h3><p>공개 URL을 서버 측 브라우저로 렌더링하고 제목·섹션·메뉴·CTA의 실제 좌표와 href를 읽어 페이지별 Blueprint를 만듭니다.</p></article>
+        <article><span>02</span><h3>Auto Director</h3><p>전체 → 제목 → 기능 → 메뉴/버튼 클릭 → 다음 페이지 진입 순서를 기본값으로 만들고, 페이지마다 어떤 링크를 설명하거나 클릭할지 수정할 수 있습니다.</p></article>
+        <article><span>03</span><h3>모션 + 오디오 렌더링</h3><p>자동 연출안을 모션 템플릿과 직접 그린 경로로 다듬고, 내장 사운드 또는 업로드 음원을 영상과 함께 WebM으로 기록합니다.</p></article>
       </div>
     </section>
   </main>
 
-  <footer class="footer"><div><strong>MotionFrame Studio</strong><span>v4.0 · DOM-aware capture · Visual motion paths · Audio preview</span></div><nav><a href="#capture">URL 캡처</a><a href="#templates">템플릿</a><a href="#top">맨 위로</a></nav></footer>
+  <footer class="footer"><div><strong>MotionFrame Studio</strong><span>v5.0 · DOM coordinates · Link-aware Auto Director · Audio/WebM</span></div><nav><a href="#capture">URL 분석</a><a href="#director">Auto Director</a><a href="#templates">모션 스타일</a><a href="#top">맨 위로</a></nav></footer>
 
   <div class="toast-root" id="toastRoot" aria-live="polite" aria-atomic="true"></div>
 
@@ -249,6 +262,6 @@ https://example.com/pricing" autocomplete="url" inputmode="url" aria-describedby
       status.querySelector('p').textContent = 'JavaScript가 시작되지 않았습니다. 새로고침 후에도 계속되면 배포된 assets/app.js를 확인해 주세요.';
     }, 3500);
   </script>
-  <script type="module" src="./assets/app.js?v=4.0.0"></script>
+  <script type="module" src="./assets/app.js?v=5.0.0"></script>
 </body>
 </html>
