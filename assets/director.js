@@ -20,19 +20,31 @@ function samePage(a, b) {
   } catch { return false; }
 }
 
+function analysisDimensions(analysis = {}) {
+  const viewportWidth = Number(analysis.viewportWidth || analysis.documentWidth || 1440);
+  const viewportHeight = Number(analysis.viewportHeight || 900);
+  const documentWidth = Number(analysis.documentWidth || viewportWidth || 1440);
+  const documentHeight = Number(analysis.documentHeight || viewportHeight || 900);
+  return { viewportWidth, viewportHeight, documentWidth, documentHeight, captureMode: analysis.captureMode || 'viewport' };
+}
+
 function elementPoint(element, analysis) {
-  const full = analysis.captureMode === 'full';
-  const width = full ? (analysis.documentWidth || analysis.viewportWidth || 1) : (analysis.viewportWidth || analysis.documentWidth || 1);
-  const height = full ? (analysis.documentHeight || analysis.viewportHeight || 1) : (analysis.viewportHeight || analysis.documentHeight || 1);
+  const dims = analysisDimensions(analysis);
+  const full = dims.captureMode === 'full';
+  const width = full ? dims.documentWidth : dims.viewportWidth;
+  const height = full ? dims.documentHeight : dims.viewportHeight;
   return {
-    x: clamp((Number(element.x || width / 2) / width) * 100, 5, 95),
-    y: clamp((Number(element.y || height / 2) / height) * 100, 4, 96)
+    x: clamp((Number(element.x || width / 2) / Math.max(1, width)) * 100, 1, 99),
+    y: clamp((Number(element.y || height / 2) / Math.max(1, height)) * 100, 1, 99),
+    widthPct: clamp((Number(element.w || element.width || 0) / Math.max(1, width)) * 100, 0, 100),
+    heightPct: clamp((Number(element.h || element.height || 0) / Math.max(1, height)) * 100, 0, 100)
   };
 }
 
 function roleForElement(element) {
   const tag = String(element.tag || '').toLowerCase();
   if (element.brand) return 'brand';
+  if (tag === 'img' || tag === 'video' || element.role === 'media') return 'media';
   const text = clean(element.text);
   if (tag === 'h1') return 'hero';
   if (tag === 'h2' || tag === 'h3') return 'section';
@@ -46,6 +58,7 @@ function roleForElement(element) {
 
 function normalizeElements(analysis) {
   const source = Array.isArray(analysis?.elements) ? analysis.elements : [];
+  const dims = analysisDimensions(analysis);
   return source
     .map((element, index) => {
       const text = clean(element.text);
@@ -59,6 +72,8 @@ function normalizeElements(analysis) {
         href: safeUrl(element.href, analysis.url),
         x: point.x,
         y: point.y,
+        widthPct: point.widthPct,
+        heightPct: point.heightPct,
         top: Number(element.top || element.y || 0),
         width: Number(element.w || element.width || 0),
         height: Number(element.h || element.height || 0),
@@ -67,6 +82,7 @@ function normalizeElements(analysis) {
       };
     })
     .filter(Boolean)
+    .filter((element) => dims.captureMode === 'full' || (element.top < dims.viewportHeight && element.top + element.height > 0))
     .filter((element, index, list) => list.findIndex((item) => item.text === element.text && item.href === element.href && item.role === element.role) === index);
 }
 
@@ -99,20 +115,39 @@ export function suggestInternalLinks(analysis, limit = 2) {
 }
 
 function pickBrand(elements) {
-  return elements.find((element) => element.role === 'brand' && element.y <= 12) || null;
+  return elements.find((element) => element.role === 'brand' && element.y <= 14) || null;
 }
 
 function pickHero(elements) {
   return elements.find((element) => element.role === 'hero') || elements.find((element) => element.role === 'section') || null;
 }
 
-function pickSections(elements, count) {
+function pickMedia(elements, hero) {
+  const heroY = hero?.y ?? 0;
   return elements
+    .filter((element) => element.role === 'media')
+    .filter((element) => element.widthPct >= 18 && element.heightPct >= 2)
+    .filter((element) => element.y >= Math.max(0, heroY - 8))
+    .map((element) => ({ element, score: element.widthPct * Math.max(2, element.heightPct) - Math.max(0, element.y - 72) * 1.5 }))
+    .sort((a, b) => b.score - a.score)[0]?.element || null;
+}
+
+function pickSections(elements, count, hero) {
+  const heroY = hero?.y ?? -100;
+  const sections = elements
     .filter((element) => element.role === 'section')
-    .filter((element) => element.y > 16)
+    .filter((element) => Math.abs(element.y - heroY) >= 7)
     .sort((a, b) => a.top - b.top)
-    .filter((element, index, list) => list.findIndex((item) => item.text === element.text) === index)
-    .slice(0, count);
+    .filter((element, index, list) => list.findIndex((item) => item.text === element.text) === index);
+  if (sections.length <= count) return sections;
+  if (count <= 1) return [sections[Math.min(sections.length - 1, Math.floor(sections.length * .35))]];
+  const picked = [];
+  for (let i = 0; i < count; i += 1) {
+    const targetIndex = Math.round((sections.length - 1) * (i / Math.max(1, count - 1)));
+    const candidate = sections[targetIndex];
+    if (candidate && !picked.includes(candidate)) picked.push(candidate);
+  }
+  return picked.slice(0, count);
 }
 
 function matchLinkToPage(elements, targetUrl) {
@@ -141,7 +176,7 @@ function matchLinkToPage(elements, targetUrl) {
 function pickCta(elements) {
   return elements
     .filter((element) => ['cta', 'control', 'link'].includes(element.role))
-    .map((element) => ({ element, score: (CTA_RE.test(element.text) ? 8 : 0) + (element.href ? 2 : 0) + (element.y < 55 ? 2 : 0) }))
+    .map((element) => ({ element, score: (CTA_RE.test(element.text) ? 8 : 0) + (element.href ? 2 : 0) + (element.y < 72 ? 2 : 0) }))
     .sort((a, b) => b.score - a.score)[0]?.element || null;
 }
 
@@ -151,21 +186,65 @@ function defaultElementBehavior(element, transitionElement, isLast) {
   return 'skip';
 }
 
+function overviewPoint(page) {
+  if (page.captureMode === 'full' && page.documentHeight > page.viewportHeight * 1.15) {
+    return {
+      x: 50,
+      y: clamp((page.viewportHeight * .48 / Math.max(1, page.documentHeight)) * 100, 3, 35)
+    };
+  }
+  return { x: 50, y: 50 };
+}
+
+function recommendedZoom(element, page) {
+  const roleTarget = { brand: 112, hero: 112, media: 110, section: 118, nav: 128, cta: 132, link: 124, control: 128 }[element.role] || 118;
+  const roleMax = { brand: 120, hero: 120, media: 118, section: 126, nav: 138, cta: 142, link: 136, control: 138 }[element.role] || 128;
+  const vw = Math.max(1, page.viewportWidth || page.documentWidth || 1440);
+  const vh = Math.max(1, page.viewportHeight || 900);
+  const dw = Math.max(1, page.documentWidth || vw);
+  const dh = Math.max(1, page.documentHeight || vh);
+  const ratio = vw / vh;
+  const baseW = Math.min(dw, dh * ratio);
+  const baseH = Math.min(dh, dw / ratio);
+  const ew = Math.max(1, element.width || (element.widthPct / 100) * dw || dw * .2);
+  const eh = Math.max(1, element.height || (element.heightPct / 100) * dh || vh * .08);
+  const maxByWidth = (baseW / (ew * 1.7)) * 100;
+  const maxByHeight = (baseH / (eh * 2.4)) * 100;
+  return clamp(Math.min(roleTarget, maxByWidth, maxByHeight, roleMax), 103, roleMax);
+}
+
+function framingAnchor(element) {
+  let anchorX = .5;
+  if (element.x < 34) anchorX = element.role === 'hero' || element.role === 'section' ? .38 : .34;
+  else if (element.x > 66) anchorX = element.role === 'hero' || element.role === 'section' ? .62 : .66;
+  let anchorY = .5;
+  if (element.role === 'nav' || element.y < 14) anchorY = .28;
+  else if (element.role === 'hero') anchorY = .44;
+  else if (element.role === 'media') anchorY = .5;
+  else if (element.role === 'cta' && element.y > 68) anchorY = .6;
+  else if (element.y < 32) anchorY = .42;
+  else if (element.y > 76) anchorY = .58;
+  return { anchorX, anchorY };
+}
+
 export function createDirectorPlan(pages, options = {}) {
   const detail = options.detail || 'standard';
-  const sectionCount = detail === 'compact' ? 1 : detail === 'detailed' ? 4 : 2;
+  const sectionCount = detail === 'compact' ? 1 : detail === 'detailed' ? 3 : 2;
   const normalizedPages = pages.map((page, pageIndex) => {
     const analysis = page.sourceAnalysis || { url: page.sourceUrl || '', title: page.name || `페이지 ${pageIndex + 1}`, elements: [] };
+    const dims = analysisDimensions(analysis);
     const elements = normalizeElements(analysis);
     const nextPage = pages[pageIndex + 1];
     const transitionElement = matchLinkToPage(elements, nextPage?.sourceUrl);
-    const brand = pageIndex === 0 ? pickBrand(elements) : null;
+    const brand = detail === 'detailed' && pageIndex === 0 ? pickBrand(elements) : null;
     const hero = pickHero(elements);
-    const sections = pickSections(elements, sectionCount);
+    const media = detail === 'compact' ? null : pickMedia(elements, hero);
+    const sectionBudget = Math.max(0, sectionCount - (media ? 1 : 0));
+    const sections = pickSections(elements, sectionBudget, hero).filter((item) => item.id !== transitionElement?.id);
     const cta = pickCta(elements);
-    const selected = [brand, hero, ...sections, transitionElement, pageIndex === pages.length - 1 ? cta : null].filter(Boolean);
+    const selected = [brand, hero, media, ...sections, transitionElement, pageIndex === pages.length - 1 ? cta : null].filter(Boolean);
     const unique = selected.filter((element, index, list) => list.findIndex((item) => item.id === element.id) === index);
-    const candidatePool = [...unique, ...elements.filter((element) => ['brand', 'hero', 'section', 'nav', 'cta', 'link', 'control'].includes(element.role))]
+    const candidatePool = [...unique, ...elements.filter((element) => ['brand', 'hero', 'media', 'section', 'nav', 'cta', 'link', 'control'].includes(element.role))]
       .filter((element, index, list) => list.findIndex((item) => item.id === element.id) === index)
       .slice(0, 24);
     const candidates = candidatePool
@@ -181,10 +260,11 @@ export function createDirectorPlan(pages, options = {}) {
       url: page.sourceUrl || analysis.url || '',
       sourceSceneId: page.id,
       elements: candidates,
-      detectedCount: elements.length
+      detectedCount: elements.length,
+      ...dims
     };
   });
-  return { version: 1, detail, pages: normalizedPages };
+  return { version: 2, detail, pages: normalizedPages };
 }
 
 export function setElementBehavior(plan, pageIndex, elementId, behavior, targetPageIndex = null) {
@@ -222,19 +302,79 @@ export function buildBeatSpecs(plan) {
     else current = pages.findIndex((_, index) => !visited.has(index));
   }
   pages.forEach((_, index) => { if (!visited.has(index)) order.push(index); });
-  order.forEach((pageIndex) => {
+
+  order.forEach((pageIndex, orderIndex) => {
     const page = pages[pageIndex];
+    const overview = overviewPoint(page);
     const active = page.elements.filter((element) => element.behavior !== 'skip');
     const navigate = active.find((element) => element.behavior === 'navigate');
     const beforeNavigate = navigate ? active.filter((element) => element.id !== navigate.id) : active;
-    specs.push({ pageIndex, role: 'overview', label: `${page.title} · 전체`, x: 50, y: pageIndex === order[0] ? 10 : 18, zoom: 100, behavior: 'focus' });
-    beforeNavigate.forEach((element) => {
-      specs.push({ pageIndex, role: element.role, label: element.text, x: element.x, y: element.y, zoom: element.role === 'brand' ? 128 : element.role === 'hero' ? 118 : element.role === 'section' ? 132 : 148, behavior: element.behavior, href: element.href, targetPageIndex: element.targetPageIndex });
+
+    specs.push({
+      pageIndex,
+      role: 'overview',
+      intent: orderIndex === 0 ? 'establish' : 'arrive',
+      label: `${page.title} · 전체`,
+      x: overview.x,
+      y: overview.y,
+      zoom: 100,
+      anchorX: .5,
+      anchorY: .5,
+      behavior: 'focus'
     });
-    if (navigate) specs.push({ pageIndex, role: navigate.role, label: navigate.text, x: navigate.x, y: navigate.y, zoom: 148, behavior: 'navigate', href: navigate.href, targetPageIndex: navigate.targetPageIndex });
+
+    beforeNavigate.forEach((element) => {
+      const anchor = framingAnchor(element);
+      specs.push({
+        pageIndex,
+        role: element.role,
+        intent: element.behavior === 'click' ? 'click' : 'focus',
+        label: element.text,
+        x: element.x,
+        y: element.y,
+        zoom: recommendedZoom(element, page),
+        anchorX: anchor.anchorX,
+        anchorY: anchor.anchorY,
+        behavior: element.behavior,
+        href: element.href,
+        targetPageIndex: element.targetPageIndex
+      });
+    });
+
+    if (navigate) {
+      const anchor = framingAnchor(navigate);
+      specs.push({
+        pageIndex,
+        role: navigate.role,
+        intent: 'navigate',
+        label: navigate.text,
+        x: navigate.x,
+        y: navigate.y,
+        zoom: recommendedZoom(navigate, page),
+        anchorX: anchor.anchorX,
+        anchorY: anchor.anchorY,
+        behavior: 'navigate',
+        href: navigate.href,
+        targetPageIndex: navigate.targetPageIndex
+      });
+    }
   });
+
   const lastIndex = order.at(-1);
-  if (Number.isInteger(lastIndex)) specs.push({ pageIndex: lastIndex, role: 'outro', label: `${pages[lastIndex].title} · 마무리`, x: 50, y: 50, zoom: 100, behavior: 'focus' });
+  if (Number.isInteger(lastIndex)) {
+    const overview = overviewPoint(pages[lastIndex]);
+    specs.push({
+      pageIndex: lastIndex,
+      role: 'outro',
+      intent: 'resolve',
+      label: `${pages[lastIndex].title} · 마무리`,
+      x: overview.x,
+      y: overview.y,
+      zoom: 100,
+      anchorX: .5,
+      anchorY: .5,
+      behavior: 'focus'
+    });
+  }
   return specs;
 }
-

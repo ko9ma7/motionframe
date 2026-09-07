@@ -1,20 +1,28 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=5.0.0';
-import { soundPresets, createProceduralBuffer, applyFade } from './audio.js?v=5.0.0';
-import { buildBeatSpecs, createDirectorPlan, planSummary, setElementBehavior, suggestInternalLinks } from './director.js?v=5.0.0';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=6.0.0';
+import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=6.0.0';
+import { buildBeatSpecs, createDirectorPlan, planSummary, setElementBehavior, suggestInternalLinks } from './director.js?v=6.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const lerp = (a, b, t) => a + (b - a) * t;
 const easeInOut = (t) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-const STORAGE_KEY = 'motionframe:v5:project';
-const LEGACY_STORAGE_KEY = 'motionframe:v4:project';
-const TEMPLATE_KEY = 'motionframe:v5:templates';
-const LEGACY_TEMPLATE_KEY = 'motionframe:v4:templates';
+const easeOutCubic = (t) => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+const smoothStep = (t) => { const p = clamp(t, 0, 1); return p * p * (3 - 2 * p); };
+function windowProgress(progress, start, end, easing = 'cinematic') {
+  const p = clamp((progress - start) / Math.max(.001, end - start), 0, 1);
+  if (easing === 'settle') return easeOutCubic(p);
+  if (easing === 'linear') return p;
+  return easeInOut(p);
+}
+const STORAGE_KEY = 'motionframe:v6:project';
+const LEGACY_STORAGE_KEY = 'motionframe:v5:project';
+const TEMPLATE_KEY = 'motionframe:v6:templates';
+const LEGACY_TEMPLATE_KEY = 'motionframe:v5:templates';
 const DB_NAME = 'motionframe-studio-v5';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
-const DOM_FUNCTION = `({page})=>page.evaluate(()=>{let d=document.documentElement,b=document.body,W=Math.max(d.scrollWidth,b.scrollWidth),H=Math.max(d.scrollHeight,b.scrollHeight),iw=innerWidth,ih=innerHeight,a=[...document.querySelectorAll('h1,h2,h3,header a,nav a,button,[role=button],a[href],[class*=logo],[class*=brand]')];return{w:W,h:H,iw,ih,e:a.slice(0,120).map((n,i)=>{let r=n.getBoundingClientRect(),s=getComputedStyle(n),t=(n.innerText||n.textContent||n.getAttribute('aria-label')||n.querySelector('img')?.alt||'').trim().replace(/\s+/g,' ').slice(0,100);if(!t||r.width<4||r.height<4||s.display==='none'||s.visibility==='hidden')return null;return{id:'e'+i,tag:n.tagName.toLowerCase(),role:n.getAttribute('role')||'',text:t,href:n.href||'',x:r.left+r.width/2+scrollX,y:r.top+r.height/2+scrollY,top:r.top+scrollY,w:r.width,h:r.height,inNav:!!n.closest('nav'),brand:!!n.closest('header')&&!!n.matches('a,[class*=logo],[class*=brand]')}}).filter(Boolean)}})`;
+const DOM_FUNCTION = `({page})=>page.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,nav a,button,[role=button],a[href],main img,main video,[class*=mockup],[class*=preview],[class*=logo],[class*=brand]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,e:a.slice(0,120).map((n,i)=>{let r=n.getBoundingClientRect(),s=getComputedStyle(n),g=n.tagName.toLowerCase(),m=g==='img'||g==='video',t=(n.innerText||n.textContent||n.getAttribute('aria-label')||n.getAttribute('alt')||n.querySelector('img')?.alt||(m?'Product preview':'')).trim().replace(/\s+/g,' ').slice(0,100);if(!t||r.width<4||r.height<4||s.display==='none'||s.visibility==='hidden')return null;return{id:'e'+i,tag:g,role:m?'media':n.getAttribute('role')||'',text:t,href:n.href||'',x:r.left+r.width/2+scrollX,y:r.top+r.height/2+scrollY,top:r.top+scrollY,w:r.width,h:r.height,inNav:!!n.closest('nav'),brand:!!n.closest('header')&&!!n.matches('a,[class*=logo],[class*=brand]')}}).filter(Boolean)}})`;
 
 let dbPromise;
 let state;
@@ -40,7 +48,8 @@ let pathDrawing = false;
 let pathDraft = [];
 let directorPlan = null;
 let directorBases = [];
-let directorTemplateId = 'web-story';
+let directorTemplateId = 'website-story';
+let lastFrameProjection = null;
 
 const canvas = $('#previewCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -138,6 +147,17 @@ function baseScene(overrides = {}) {
     duration: 2.4,
     transition: 'crossfade',
     motionPreset: 'overview',
+    shotIntent: 'focus',
+    cameraMoveStart: 0.08,
+    cameraMoveEnd: 0.68,
+    cursorMoveStart: 0.18,
+    cursorMoveEnd: 0.66,
+    clickStart: 0.72,
+    clickEnd: 0.86,
+    startAnchorX: 0.5,
+    startAnchorY: 0.5,
+    focusAnchorX: 0.5,
+    focusAnchorY: 0.5,
     startZoom: 100,
     endZoom: 116,
     startX: 50,
@@ -145,6 +165,8 @@ function baseScene(overrides = {}) {
     endX: 50,
     endY: 46,
     cursorEnabled: false,
+    cursorStartX: 50,
+    cursorStartY: 50,
     cursorX: 66,
     cursorY: 52
   }, overrides.motionPreset || 'overview', overrides);
@@ -152,12 +174,12 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 5,
+    version: 6,
     aspect: '16:9',
     resolution: '1280x720',
     frameStyle: 'browser',
     directorPlan: null,
-    directorTemplateId: 'web-story',
+    directorTemplateId: 'website-story',
     audio: { preset: 'softCorporate', volume: 42, fade: true, assetKey: null, name: '' },
     scenes: [
       baseScene({ name: '전체 화면', imageUrl: demoSvg('Automation overview', '#8da5ff', 0), duration: 2.2, sourceType: 'demo', motionPreset: 'overview' }),
@@ -171,12 +193,12 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 5,
+    version: 6,
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
     frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
     directorPlan: project.directorPlan?.pages ? project.directorPlan : null,
-    directorTemplateId: typeof project.directorTemplateId === 'string' ? project.directorTemplateId : 'web-story',
+    directorTemplateId: project.directorTemplateId === 'web-story' ? 'website-story' : (typeof project.directorTemplateId === 'string' ? project.directorTemplateId : 'website-story'),
     audio: {
       preset: normalizeAudioPreset(project.audio?.preset),
       volume: clamp(Number(project.audio?.volume ?? 42), 0, 100),
@@ -304,7 +326,8 @@ function renderDomAnalysis(scenes = []) {
   const buttons = analyses.reduce((sum, item) => sum + item.buttons.length, 0);
   const positioned = analyses.reduce((sum, item) => sum + (item.elements?.length || 0), 0);
   const links = analyses.reduce((sum, item) => sum + (item.elements || []).filter((element) => element.href).length, 0);
-  chips.innerHTML = `<span><b>${titleCount}</b>페이지</span><span><b>${positioned}</b>좌표 요소</span><span><b>${links}</b>링크</span><span><b>${headings}</b>헤딩</span><span><b>${buttons}</b>버튼</span>`;
+  const media = analyses.reduce((sum, item) => sum + (item.elements || []).filter((element) => element.role === 'media').length, 0);
+  chips.innerHTML = `<span><b>${titleCount}</b>페이지</span><span><b>${positioned}</b>좌표 요소</span><span><b>${media}</b>제품 화면</span><span><b>${links}</b>링크</span><span><b>${headings}</b>헤딩</span><span><b>${buttons}</b>버튼</span>`;
   const examples = analyses.flatMap((item) => [...item.headings.slice(0, 2), ...item.buttons.slice(0, 1)]).slice(0, 4);
   examples.forEach((text) => { const chip = document.createElement('span'); chip.textContent = text; chips.append(chip); });
   root.hidden = false;
@@ -475,7 +498,7 @@ function roundedRect(context, x, y, w, h, r) {
   context.closePath();
 }
 
-function drawFocusedMedia(context, img, x, y, w, h, zoom, focusX, focusY) {
+function mediaCrop(img, w, h, zoom, focusX, focusY, anchorX = .5, anchorY = .5) {
   const sourceWidth = img.naturalWidth || img.videoWidth;
   const sourceHeight = img.naturalHeight || img.videoHeight;
   const targetRatio = w / h;
@@ -486,9 +509,26 @@ function drawFocusedMedia(context, img, x, y, w, h, zoom, focusX, focusY) {
   const z = Math.max(1, zoom / 100);
   const sw = Math.min(sourceWidth, baseW / z);
   const sh = Math.min(sourceHeight, baseH / z);
-  const sx = clamp((sourceWidth - sw) * (focusX / 100), 0, sourceWidth - sw);
-  const sy = clamp((sourceHeight - sh) * (focusY / 100), 0, sourceHeight - sh);
-  context.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  const targetX = sourceWidth * clamp(focusX / 100, 0, 1);
+  const targetY = sourceHeight * clamp(focusY / 100, 0, 1);
+  const sx = clamp(targetX - sw * clamp(anchorX, .12, .88), 0, Math.max(0, sourceWidth - sw));
+  const sy = clamp(targetY - sh * clamp(anchorY, .12, .88), 0, Math.max(0, sourceHeight - sh));
+  return { sourceWidth, sourceHeight, sx, sy, sw, sh };
+}
+
+function drawFocusedMedia(context, img, x, y, w, h, zoom, focusX, focusY, anchorX = .5, anchorY = .5) {
+  const crop = mediaCrop(img, w, h, zoom, focusX, focusY, anchorX, anchorY);
+  context.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, x, y, w, h);
+  return crop;
+}
+
+function projectSourcePointToFrame(point, crop, x, y, w, h) {
+  const px = crop.sourceWidth * clamp(Number(point.x || 0) / 100, 0, 1);
+  const py = crop.sourceHeight * clamp(Number(point.y || 0) / 100, 0, 1);
+  return {
+    x: x + ((px - crop.sx) / Math.max(1, crop.sw)) * w,
+    y: y + ((py - crop.sy) / Math.max(1, crop.sh)) * h
+  };
 }
 
 function drawCursor(context, x, y, size, clickProgress) {
@@ -569,12 +609,20 @@ async function drawScene(scene, progress, opacity = 1, transform = {}) {
     img = await imageForScene(scene).catch(() => null);
     if (!img) return;
   }
+
   const w = canvas.width, h = canvas.height;
-  const p = easeInOut(clamp(progress,0,1));
-  const zoom = lerp(Number(scene.startZoom), Number(scene.endZoom), p);
-  const focusPoint = sampleMotionPath(scene, p);
-  const focusX = focusPoint.x;
-  const focusY = focusPoint.y;
+  const moveStart = Number.isFinite(Number(scene.cameraMoveStart)) ? Number(scene.cameraMoveStart) : .08;
+  const moveEnd = Number.isFinite(Number(scene.cameraMoveEnd)) ? Number(scene.cameraMoveEnd) : .68;
+  const cameraP = windowProgress(progress, moveStart, moveEnd, scene.shotIntent === 'establish' ? 'cinematic' : 'settle');
+  const zoom = lerp(Number(scene.startZoom), Number(scene.endZoom), cameraP);
+  const focusPoint = sampleMotionPath(scene, cameraP);
+  const startAnchorX = Number(scene.startAnchorX ?? scene.focusAnchorX ?? .5);
+  const startAnchorY = Number(scene.startAnchorY ?? scene.focusAnchorY ?? .5);
+  const endAnchorX = Number(scene.focusAnchorX ?? .5);
+  const endAnchorY = Number(scene.focusAnchorY ?? .5);
+  const anchorX = lerp(startAnchorX, endAnchorX, cameraP);
+  const anchorY = lerp(startAnchorY, endAnchorY, cameraP);
+
   const geom = frameGeometry(w,h);
   const contentY = geom.y + geom.chrome;
   const contentH = geom.h - geom.chrome;
@@ -603,18 +651,34 @@ async function drawScene(scene, progress, opacity = 1, transform = {}) {
     roundedRect(ctx, geom.x, geom.y, geom.w, geom.h, geom.radius); ctx.clip();
   }
 
-  drawFocusedMedia(ctx, img, geom.x, contentY, geom.w, contentH, zoom, focusX, focusY);
+  const crop = drawFocusedMedia(ctx, img, geom.x, contentY, geom.w, contentH, zoom, focusPoint.x, focusPoint.y, anchorX, anchorY);
+  if (scene.id === selectedSceneId && opacity > .9 && Math.abs((transform.scale ?? 1) - 1) < .001 && Math.abs(transform.x ?? 0) < .001 && Math.abs(transform.y ?? 0) < .001) {
+    lastFrameProjection = { sceneId:scene.id, crop, frame:{ x:geom.x, y:contentY, w:geom.w, h:contentH }, canvasW:w, canvasH:h };
+  }
   ctx.restore();
 
   if (scene.cursorEnabled) {
-    const cursorT = clamp((progress - .08) / .68, 0, 1);
-    const cp = easeInOut(cursorT);
-    const startCX = 18, startCY = 24;
-    const cursorPoint = scene.cursorFollowPath && effectiveMotionPath(scene).length >= 2 ? sampleMotionPath(scene, cp) : { x: lerp(startCX, Number(scene.cursorX), cp), y: lerp(startCY, Number(scene.cursorY), cp) };
-    const cx = cursorPoint.x / 100 * w;
-    const cy = cursorPoint.y / 100 * h;
-    const click = progress > .70 && progress < .88 ? (progress - .70) / .18 : 0;
-    drawCursor(ctx, cx, cy, Math.max(26,w*.025), click);
+    const cursorStart = Number.isFinite(Number(scene.cursorMoveStart)) ? Number(scene.cursorMoveStart) : .18;
+    const cursorEnd = Number.isFinite(Number(scene.cursorMoveEnd)) ? Number(scene.cursorMoveEnd) : .66;
+    const cursorP = windowProgress(progress, cursorStart, cursorEnd, 'settle');
+    const cursorPoint = scene.cursorFollowPath && effectiveMotionPath(scene).length >= 2
+      ? sampleMotionPath(scene, cursorP)
+      : {
+          x: lerp(Number(scene.cursorStartX ?? scene.startX ?? 50), Number(scene.cursorX), cursorP),
+          y: lerp(Number(scene.cursorStartY ?? scene.startY ?? 50), Number(scene.cursorY), cursorP)
+        };
+    const projected = projectSourcePointToFrame(cursorPoint, crop, geom.x, contentY, geom.w, contentH);
+    const transformed = {
+      x: w/2 + tx + (projected.x - w/2) * scale,
+      y: h/2 + ty + (projected.y - h/2) * scale
+    };
+    const clickStart = Number.isFinite(Number(scene.clickStart)) ? Number(scene.clickStart) : .72;
+    const clickEnd = Number.isFinite(Number(scene.clickEnd)) ? Number(scene.clickEnd) : .86;
+    const click = progress >= clickStart && progress <= clickEnd ? smoothStep((progress - clickStart) / Math.max(.001, clickEnd - clickStart)) : 0;
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    drawCursor(ctx, transformed.x, transformed.y, Math.max(26,w*.025), click);
+    ctx.restore();
   }
 }
 
@@ -628,6 +692,10 @@ function locateTime(time) {
   return { index:0, local:0, duration:1, start:0 };
 }
 
+function sceneMediaIdentity(scene) {
+  return scene?.assetKey || scene?.imageUrl || scene?.sourceUrl || scene?.id || '';
+}
+
 async function renderAt(time) {
   syncCanvasSize();
   const w = canvas.width, h = canvas.height;
@@ -637,10 +705,14 @@ async function renderAt(time) {
   const loc = locateTime(clamp(time,0,totalDuration()));
   const scene = state.scenes[loc.index];
   const p = loc.duration ? loc.local / loc.duration : 0;
-  const transitionLength = Math.min(.5, loc.duration * .22);
-  const transitionStart = 1 - transitionLength / loc.duration;
-  const transP = p > transitionStart && loc.index < state.scenes.length-1 ? clamp((p-transitionStart)/(1-transitionStart),0,1) : 0;
   const next = state.scenes[loc.index+1];
+  const sameMedia = next && sceneMediaIdentity(scene) === sceneMediaIdentity(next);
+  const baseTransitionLength = scene.transition === 'page-flow' ? .48 : .38;
+  const transitionLength = Math.min(baseTransitionLength, loc.duration * .22);
+  const transitionStart = 1 - transitionLength / Math.max(.001, loc.duration);
+  const transP = !sameMedia && p > transitionStart && loc.index < state.scenes.length-1
+    ? clamp((p-transitionStart)/(1-transitionStart),0,1)
+    : 0;
 
   if (!transP || scene.transition === 'cut' || !next) {
     await drawScene(scene,p,1);
@@ -648,8 +720,13 @@ async function renderAt(time) {
     await drawScene(scene,p,1-transP);
     await drawScene(next,0,transP);
   } else if (scene.transition === 'zoom-out') {
-    await drawScene(scene,p,1-transP*.35,{ scale:1-transP*.08 });
-    await drawScene(next,0,transP,{ scale:.92+transP*.08 });
+    const eased = easeOutCubic(transP);
+    await drawScene(scene,p,1-transP*.42,{ scale:1-eased*.055 });
+    await drawScene(next,0,transP,{ scale:.965+eased*.035 });
+  } else if (scene.transition === 'page-flow') {
+    const eased = easeInOut(transP);
+    await drawScene(scene,p,1-transP,{ scale:1-eased*.045, x:-w*.012*eased });
+    await drawScene(next,0,transP,{ scale:.97+eased*.03, x:w*.018*(1-eased) });
   } else if (scene.transition === 'slide') {
     await drawScene(scene,p,1,{ x:-w*transP });
     await drawScene(next,0,1,{ x:w*(1-transP) });
@@ -748,8 +825,36 @@ async function renderAll() {
 
 
 function pathPointFromEvent(event) {
-  const overlay = $('#motionPathOverlay'); const rect = overlay.getBoundingClientRect();
-  return { x: clamp((event.clientX - rect.left) / Math.max(1, rect.width) * 100, 0, 100), y: clamp((event.clientY - rect.top) / Math.max(1, rect.height) * 100, 0, 100) };
+  const overlay = $('#motionPathOverlay');
+  const rect = overlay.getBoundingClientRect();
+  const screenX = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+  const screenY = clamp((event.clientY - rect.top) / Math.max(1, rect.height), 0, 1);
+  const scene = selectedScene();
+  const projection = lastFrameProjection?.sceneId === scene?.id ? lastFrameProjection : null;
+  if (!projection) return { x:screenX * 100, y:screenY * 100 };
+  const canvasX = screenX * projection.canvasW;
+  const canvasY = screenY * projection.canvasH;
+  const localX = clamp((canvasX - projection.frame.x) / Math.max(1, projection.frame.w), 0, 1);
+  const localY = clamp((canvasY - projection.frame.y) / Math.max(1, projection.frame.h), 0, 1);
+  return {
+    x: clamp(((projection.crop.sx + projection.crop.sw * localX) / projection.crop.sourceWidth) * 100, 0, 100),
+    y: clamp(((projection.crop.sy + projection.crop.sh * localY) / projection.crop.sourceHeight) * 100, 0, 100)
+  };
+}
+
+function pathPointToOverlay(point, scene) {
+  const projection = lastFrameProjection?.sceneId === scene?.id ? lastFrameProjection : null;
+  if (!projection) return { x:clamp(Number(point.x),0,100), y:clamp(Number(point.y),0,100) };
+  const sourceX = projection.crop.sourceWidth * clamp(Number(point.x) / 100, 0, 1);
+  const sourceY = projection.crop.sourceHeight * clamp(Number(point.y) / 100, 0, 1);
+  const localX = (sourceX - projection.crop.sx) / Math.max(1, projection.crop.sw);
+  const localY = (sourceY - projection.crop.sy) / Math.max(1, projection.crop.sh);
+  const canvasX = projection.frame.x + localX * projection.frame.w;
+  const canvasY = projection.frame.y + localY * projection.frame.h;
+  return {
+    x: (canvasX / projection.canvasW) * 100,
+    y: (canvasY / projection.canvasH) * 100
+  };
 }
 
 function svgPathFor(points, type) {
@@ -766,10 +871,11 @@ function svgPathFor(points, type) {
 
 function renderMotionPathOverlay() {
   const overlay = $('#motionPathOverlay'); if (!overlay) return;
-  const scene = selectedScene(); const points = pathEditing ? pathDraft : (scene?.motionPath || []);
+  const scene = selectedScene(); const sourcePoints = pathEditing ? pathDraft : (scene?.motionPath || []);
   overlay.classList.toggle('editing', pathEditing);
   overlay.innerHTML='';
-  if (!scene || !Array.isArray(points) || points.length < 1) return;
+  if (!scene || !Array.isArray(sourcePoints) || sourcePoints.length < 1) return;
+  const points = sourcePoints.map((point) => pathPointToOverlay(point, scene));
   const ns='http://www.w3.org/2000/svg';
   if (points.length >= 2) { const path=document.createElementNS(ns,'path'); path.setAttribute('class','path-line'); path.setAttribute('d',svgPathFor(points,pathEditing?pathEditMode:(scene.pathType||'straight'))); overlay.append(path); }
   points.forEach((point,index)=>{ const circle=document.createElementNS(ns,'circle'); circle.setAttribute('cx',point.x); circle.setAttribute('cy',point.y); circle.setAttribute('r','1.25'); circle.setAttribute('class',`path-node ${index===0?'start':index===points.length-1?'end':''}`); overlay.append(circle); if(index===0||index===points.length-1){const text=document.createElementNS(ns,'text');text.setAttribute('x',point.x+1.8);text.setAttribute('y',point.y-1.8);text.setAttribute('class','path-label');text.textContent=index===0?'START':'END';overlay.append(text);} });
@@ -803,7 +909,7 @@ function bindPathEditor() {
 function setupSelectOptions() {
   $('#motionPresetSelect').innerHTML=Object.entries(motionPresets).map(([id,p])=>`<option value="${id}">${escapeHtml(p.label)}</option>`).join('');
   $('#soundPresetSelect').innerHTML=soundPresets.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join('');
-  const templates=currentTemplates(); $('#captureTemplateSelect').innerHTML=templates.filter(t=>t.category!=='custom').map(t=>`<option value="${t.id}" ${t.id==='web-story'?'selected':''}>${escapeHtml(t.title)}</option>`).join('');
+  const templates=currentTemplates(); $('#captureTemplateSelect').innerHTML=templates.filter(t=>t.category!=='custom').map(t=>`<option value="${t.id}" ${t.id==='website-story'?'selected':''}>${escapeHtml(t.title)}</option>`).join('');
 }
 
 function renderTemplateFilters() {
@@ -873,7 +979,7 @@ function renderTemplates() {
 }
 
 function templateSequenceFromState() {
-  return state.scenes.map(scene=>({ motion: scene.motionPreset || 'custom', duration:Number(scene.duration), transition:scene.transition, startZoom:scene.startZoom,endZoom:scene.endZoom,startX:scene.startX,startY:scene.startY,endX:scene.endX,endY:scene.endY,cursorEnabled:scene.cursorEnabled,cursorX:scene.cursorX,cursorY:scene.cursorY,motionPath:scene.motionPath,pathType:scene.pathType,cursorFollowPath:scene.cursorFollowPath }));
+  return state.scenes.map(scene=>({ motion: scene.motionPreset || 'custom', duration:Number(scene.duration), transition:scene.transition, shotIntent:scene.shotIntent, cameraMoveStart:scene.cameraMoveStart,cameraMoveEnd:scene.cameraMoveEnd,startAnchorX:scene.startAnchorX,startAnchorY:scene.startAnchorY,focusAnchorX:scene.focusAnchorX,focusAnchorY:scene.focusAnchorY,startZoom:scene.startZoom,endZoom:scene.endZoom,startX:scene.startX,startY:scene.startY,endX:scene.endX,endY:scene.endY,cursorEnabled:scene.cursorEnabled,cursorStartX:scene.cursorStartX,cursorStartY:scene.cursorStartY,cursorX:scene.cursorX,cursorY:scene.cursorY,cursorMoveStart:scene.cursorMoveStart,cursorMoveEnd:scene.cursorMoveEnd,clickStart:scene.clickStart,clickEnd:scene.clickEnd,motionPath:scene.motionPath,pathType:scene.pathType,cursorFollowPath:scene.cursorFollowPath }));
 }
 
 function cloneBuiltinTemplate(template) {
@@ -937,7 +1043,7 @@ function directorBehaviorLabel(value) {
 }
 
 function directorRoleLabel(value) {
-  return { brand:'브랜드', hero:'제목', section:'섹션', nav:'메뉴', cta:'CTA', link:'링크', control:'버튼' }[value] || value;
+  return { brand:'브랜드', hero:'제목', media:'제품 화면', section:'섹션', nav:'메뉴', cta:'CTA', link:'링크', control:'버튼' }[value] || value;
 }
 
 function renderDirectorPlan() {
@@ -949,7 +1055,7 @@ function renderDirectorPlan() {
     $('#directorSummary').textContent = '분석 전 · 기본 연출 기준';
     root.innerHTML = `<article class="director-page-card director-empty-card">
       <div class="director-page-head"><span class="director-page-number">01</span><div><strong>URL을 분석하면 이 기준으로 자동 구성됩니다.</strong><small>페이지 구조와 링크를 읽은 뒤 실제 제목·메뉴·버튼으로 교체됩니다.</small></div><span class="director-detected">DEFAULT</span></div>
-      <div class="director-beats"><span class="director-beat overview">전체 화면</span><i>→</i><span class="director-beat">H1 제목</span><i>→</i><span class="director-beat">핵심 기능</span><i>→</i><span class="director-beat navigate">메뉴 클릭</span><i>→</i><span class="director-beat overview">다음 페이지</span><i>→</i><span class="director-beat click">CTA 클릭</span><i>→</i><span class="director-beat overview">줌아웃</span></div>
+      <div class="director-beats"><span class="director-beat overview">전체 화면</span><i>→</i><span class="director-beat">H1 제목</span><i>→</i><span class="director-beat">제품 화면</span><i>→</i><span class="director-beat">핵심 기능</span><i>→</i><span class="director-beat navigate">메뉴 클릭</span><i>→</i><span class="director-beat overview">다음 페이지</span><i>→</i><span class="director-beat click">CTA 클릭</span><i>→</i><span class="director-beat overview">줌아웃</span></div>
     </article>`;
     return;
   }
@@ -1023,58 +1129,120 @@ function rebuildDirectorPlan() {
   location.hash = 'director';
 }
 
+function shotTiming(intent) {
+  if (intent === 'establish') return { duration:1.9, moveStart:.08, moveEnd:.86, cursorStart:.2, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
+  if (intent === 'arrive') return { duration:1.65, moveStart:.06, moveEnd:.58, cursorStart:.2, cursorEnd:.64, clickStart:.72, clickEnd:.84 };
+  if (intent === 'navigate') return { duration:2.15, moveStart:.05, moveEnd:.43, cursorStart:.20, cursorEnd:.62, clickStart:.68, clickEnd:.80 };
+  if (intent === 'click') return { duration:2.05, moveStart:.05, moveEnd:.48, cursorStart:.22, cursorEnd:.64, clickStart:.70, clickEnd:.82 };
+  if (intent === 'resolve') return { duration:1.6, moveStart:.06, moveEnd:.82, cursorStart:.2, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
+  return { duration:2.2, moveStart:.06, moveEnd:.60, cursorStart:.2, cursorEnd:.64, clickStart:.72, clickEnd:.84 };
+}
+
 function buildDirectorScenes() {
   if (!directorPlan?.pages?.length || !directorBases.length) return [];
   const template = currentTemplates().find((item) => item.id === directorTemplateId) || builtinTemplates[0];
   const sequence = template.sequence?.length ? template.sequence : [{ motion:'focus', duration:2.2, transition:'crossfade' }];
   const beats = buildBeatSpecs(directorPlan);
   const scenes = [];
-  let previous = { pageIndex: -1, x: 50, y: 10 };
+  let previous = { pageIndex: -1, x: 50, y: 50, zoom: 100, anchorX:.5, anchorY:.5 };
+
   beats.forEach((beat, index) => {
     const base = directorBases[beat.pageIndex];
     if (!base) return;
     const style = sequence[index % sequence.length];
+    const timing = shotTiming(beat.intent || 'focus');
     const samePage = previous.pageIndex === beat.pageIndex;
-    const start = samePage ? { x: previous.x, y: previous.y } : { x: 50, y: beat.role === 'overview' ? 10 : 18 };
-    const target = { x: clamp(Number(beat.x ?? 50), 4, 96), y: clamp(Number(beat.y ?? 50), 3, 97) };
+    const target = {
+      x: clamp(Number(beat.x ?? 50), 1, 99),
+      y: clamp(Number(beat.y ?? 50), 1, 99),
+      zoom: clamp(Number(beat.zoom || 118), 100, 150),
+      anchorX: clamp(Number(beat.anchorX ?? .5), .18, .82),
+      anchorY: clamp(Number(beat.anchorY ?? .5), .18, .82)
+    };
+
+    let start = samePage
+      ? { x:previous.x, y:previous.y, zoom:previous.zoom, anchorX:previous.anchorX, anchorY:previous.anchorY }
+      : { x:target.x, y:target.y, zoom:beat.intent === 'establish' ? 104 : 103, anchorX:target.anchorX, anchorY:target.anchorY };
+
+    if (beat.intent === 'establish' || beat.intent === 'arrive') {
+      start = { ...start, x:target.x, y:target.y, zoom:beat.intent === 'establish' ? 104 : 103 };
+      target.zoom = 100;
+      target.anchorX = .5;
+      target.anchorY = .5;
+    }
+    if (beat.intent === 'resolve') {
+      start = samePage ? start : { ...start, zoom:108 };
+      target.zoom = 100;
+      target.anchorX = .5;
+      target.anchorY = .5;
+    }
+
     const navigate = beat.behavior === 'navigate';
     const clickable = navigate || beat.behavior === 'click';
-    const roleMotion = beat.role === 'overview' ? 'overview' : clickable ? 'cursorChase' : (style.motion || 'focus');
-    const mid = { x: clamp((start.x + target.x) / 2 + (index % 2 ? 3.5 : -3.5), 4, 96), y: clamp((start.y + target.y) / 2, 3, 97) };
-    const motionPath = Math.hypot(target.x - start.x, target.y - start.y) > 18 ? [start, mid, target] : [start, target];
+    const distance = Math.hypot(target.x - start.x, target.y - start.y);
+    const mid = {
+      x: clamp((start.x + target.x) / 2 + (index % 2 ? 1.8 : -1.8), 1, 99),
+      y: clamp((start.y + target.y) / 2 + (target.y > start.y ? 1.2 : -1.2), 1, 99)
+    };
+    const motionPath = distance > 14 ? [{x:start.x,y:start.y}, mid, {x:target.x,y:target.y}] : [{x:start.x,y:start.y},{x:target.x,y:target.y}];
     const scene = structuredClone(base);
     scene.id = createId('scene');
     const label = navigate ? `클릭 · ${beat.label}` : beat.label;
-    const duration = beat.role === 'overview' ? 1.45 : clickable ? 1.65 : clamp(Number(style.duration || 2.2), 1.5, 3.4);
+    const styleScale = clamp(Number(style.duration || 2.2) / 2.2, .88, 1.12);
+    const duration = clamp(timing.duration * styleScale, 1.35, 2.7);
+    const cursorStart = {
+      x: clamp(target.x + (target.x < 50 ? 11 : -11), 2, 98),
+      y: clamp(target.y + (target.y < 60 ? 6 : -6), 2, 98)
+    };
+
+    const roleMotion = beat.intent === 'establish' || beat.intent === 'arrive' || beat.intent === 'resolve'
+      ? 'overview'
+      : clickable ? 'cursorChase' : (style.motion || 'focus');
+
     scenes.push(hydrateMotion(scene, roleMotion, {
       id: scene.id,
       name: label,
       duration,
-      transition: navigate ? 'zoom-out' : (beat.role === 'outro' ? 'crossfade' : style.transition || 'crossfade'),
+      transition: navigate ? 'page-flow' : (samePage ? 'cut' : (style.transition || 'crossfade')),
+      shotIntent: beat.intent || (clickable ? 'click' : 'focus'),
+      cameraMoveStart: timing.moveStart,
+      cameraMoveEnd: timing.moveEnd,
+      cursorMoveStart: timing.cursorStart,
+      cursorMoveEnd: timing.cursorEnd,
+      clickStart: timing.clickStart,
+      clickEnd: timing.clickEnd,
       startX: start.x,
       startY: start.y,
       endX: target.x,
       endY: target.y,
-      startZoom: beat.role === 'overview' ? 100 : samePage ? Math.max(108, Math.min(Number(beat.zoom || 126) - 12, 132)) : 100,
-      endZoom: Number(beat.zoom || 126),
+      startZoom: start.zoom,
+      endZoom: target.zoom,
+      startAnchorX: start.anchorX,
+      startAnchorY: start.anchorY,
+      focusAnchorX: target.anchorX,
+      focusAnchorY: target.anchorY,
       motionPath,
       pathType: motionPath.length > 2 ? 'curve' : 'straight',
       cursorEnabled: clickable,
-      cursorFollowPath: clickable,
+      cursorFollowPath: false,
+      cursorStartX: cursorStart.x,
+      cursorStartY: cursorStart.y,
       cursorX: target.x,
       cursorY: target.y,
       directorRole: beat.role,
       directorBehavior: beat.behavior,
+      directorIntent: beat.intent || '',
       directorHref: beat.href || '',
       directorTargetPageIndex: beat.targetPageIndex ?? null,
       sourcePageIndex: beat.pageIndex
     }));
-    previous = { pageIndex: beat.pageIndex, x: target.x, y: target.y };
+
+    previous = { pageIndex:beat.pageIndex, x:target.x, y:target.y, zoom:target.zoom, anchorX:target.anchorX, anchorY:target.anchorY };
   });
   state.aspect = template.aspect || state.aspect;
   state.frameStyle = template.frameStyle || state.frameStyle;
   if (template.audioPreset) state.audio.preset = normalizeAudioPreset(template.audioPreset);
-  return scenes.slice(0, 32);
+  return scenes.slice(0, 28);
 }
 
 async function applyDirectorPlan() {
@@ -1260,7 +1428,7 @@ async function captureUrl(asStory) {
     const isDemo = state.scenes.length && state.scenes.every((scene) => scene.sourceType === 'demo');
     if (asStory) {
       directorBases = bases;
-      directorTemplateId = $('#captureTemplateSelect').value || 'web-story';
+      directorTemplateId = $('#captureTemplateSelect').value || 'website-story';
       directorPlan = createDirectorPlan(bases, { detail: $('#directorDetailSelect').value || 'standard' });
       state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId;
       renderDirectorPlan();
@@ -1376,7 +1544,7 @@ async function audioBufferForContext(context) {
     const blob=await getAsset(state.audio.assetKey); if(!blob)return null;
     const arr=await blob.arrayBuffer(); customAudioBufferCache=await context.decodeAudioData(arr.slice(0)); return customAudioBufferCache;
   }
-  return createProceduralBuffer(context,state.audio.preset,duration);
+  return addSceneAccents(createProceduralBuffer(context,state.audio.preset,duration), state.scenes);
 }
 
 async function startPreviewAudio(offset=0, output=true) {
@@ -1420,25 +1588,103 @@ async function handleAudioFile(file){
 
 function supportedMimeType(){ return ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(type=>MediaRecorder.isTypeSupported(type))||''; }
 
+async function prewarmExportMedia() {
+  await Promise.all(state.scenes.map(async (scene) => {
+    try {
+      if (scene.sourceType === 'video') await videoForScene(scene);
+      else await imageForScene(scene);
+    } catch {}
+  }));
+}
+
 async function exportWebM(){
-  if(exportInProgress)return; if(!state.scenes.length){toast('내보낼 장면이 없습니다.','error');return;} if(!canvas.captureStream||!window.MediaRecorder){toast('이 브라우저는 WebM 렌더링을 지원하지 않습니다. Chrome/Edge 최신 버전을 권장합니다.','error');return;}
-  exportInProgress=true; pausePlayback(); currentTime=0; syncCanvasSize(); $('#exportButton').disabled=true; $('#exportStatus').textContent='렌더링 준비 중…'; $('#exportProgress').style.width='0%';
+  if(exportInProgress)return;
+  if(!state.scenes.length){toast('내보낼 장면이 없습니다.','error');return;}
+  if(!canvas.captureStream||!window.MediaRecorder){toast('이 브라우저는 WebM 렌더링을 지원하지 않습니다. Chrome/Edge 최신 버전을 권장합니다.','error');return;}
+  exportInProgress=true; pausePlayback(); currentTime=0; syncCanvasSize(); $('#exportButton').disabled=true; $('#exportStatus').textContent='미디어 준비 중…'; $('#exportProgress').style.width='0%';
   let audioContext=null, audioSource=null;
   try{
-    const videoStream=canvas.captureStream(30); const tracks=[...videoStream.getVideoTracks()];
-    if(state.audio.preset!=='none'){
-      audioContext=new (window.AudioContext||window.webkitAudioContext)(); await audioContext.resume(); const buffer=await audioBufferForContext(audioContext);
-      if(buffer){ const dest=audioContext.createMediaStreamDestination(); const gain=audioContext.createGain(); applyFade(gain.gain,audioContext,state.audio.volume/100,totalDuration(),state.audio.fade,0); audioSource=audioContext.createBufferSource(); audioSource.buffer=buffer; audioSource.loop=state.audio.preset==='custom'&&buffer.duration<totalDuration(); audioSource.connect(gain).connect(dest); tracks.push(...dest.stream.getAudioTracks()); }
+    await prewarmExportMedia();
+    const fps=30;
+    let videoStream=canvas.captureStream(0);
+    let videoTrack=videoStream.getVideoTracks()[0];
+    let manualFrames=Boolean(videoTrack?.requestFrame);
+    if(!manualFrames){
+      videoStream.getTracks().forEach((track)=>track.stop());
+      videoStream=canvas.captureStream(fps);
+      videoTrack=videoStream.getVideoTracks()[0];
     }
-    const stream=new MediaStream(tracks); const mimeType=supportedMimeType(); const recorder=new MediaRecorder(stream,mimeType?{mimeType,videoBitsPerSecond:state.resolution==='1920x1080'?9_000_000:5_000_000}:undefined); const chunks=[];
-    recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);}; const stopped=new Promise(resolve=>recorder.addEventListener('stop',resolve,{once:true})); recorder.start(250); audioSource?.start(0);
-    const total=totalDuration(); const start=performance.now();
-    await new Promise((resolve,reject)=>{
-      const frame=async()=>{ try{ const t=Math.min((performance.now()-start)/1000,total); currentTime=t; await renderAt(t); $('#exportProgress').style.width=`${total?Math.round(t/total*100):100}%`; $('#exportStatus').textContent=`렌더링 중 · ${Math.round(total?t/total*100:100)}%`; if(t>=total){resolve();return;} requestAnimationFrame(frame);}catch(err){reject(err);} }; frame();
-    });
-    recorder.stop(); await stopped; audioSource?.stop(); const blob=new Blob(chunks,{type:mimeType||'video/webm'}); const link=document.createElement('a'); const url=URL.createObjectURL(blob); link.href=url; link.download=`motionframe-${new Date().toISOString().slice(0,10)}.webm`; document.body.append(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),10000); $('#exportStatus').textContent=`완료 · ${(blob.size/1024/1024).toFixed(1)} MB`; $('#exportProgress').style.width='100%'; toast('WebM 영상과 사운드 렌더링이 완료되었습니다.');
-  }catch(err){console.error(err);$('#exportStatus').textContent='렌더링 실패';toast(`내보내기 실패: ${err.message}`,'error');}
-  finally{try{audioContext?.close();}catch{} exportInProgress=false; $('#exportButton').disabled=false; currentTime=0; renderAll();}
+    const tracks=[videoTrack];
+    const total=totalDuration();
+    if(state.audio.preset!=='none'){
+      audioContext=new (window.AudioContext||window.webkitAudioContext)();
+      await audioContext.resume();
+      const buffer=await audioBufferForContext(audioContext);
+      if(buffer){
+        const dest=audioContext.createMediaStreamDestination();
+        const gain=audioContext.createGain();
+        applyFade(gain.gain,audioContext,state.audio.volume/100,total,state.audio.fade,0);
+        audioSource=audioContext.createBufferSource();
+        audioSource.buffer=buffer;
+        audioSource.loop=state.audio.preset==='custom'&&buffer.duration<total;
+        audioSource.connect(gain).connect(dest);
+        tracks.push(...dest.stream.getAudioTracks());
+      }
+    }
+    const stream=new MediaStream(tracks);
+    const mimeType=supportedMimeType();
+    const recorder=new MediaRecorder(stream,mimeType?{mimeType,videoBitsPerSecond:state.resolution==='1920x1080'?9_000_000:5_000_000}:undefined);
+    const chunks=[];
+    recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};
+    const stopped=new Promise(resolve=>recorder.addEventListener('stop',resolve,{once:true}));
+    recorder.start(250);
+    audioSource?.start(0);
+
+    const wallStart=performance.now();
+    let frameIndex=0;
+    while(true){
+      const elapsed=Math.min((performance.now()-wallStart)/1000,total);
+      currentTime=elapsed;
+      await renderAt(elapsed);
+      if(manualFrames) videoTrack.requestFrame();
+      const percent=total?Math.min(100,Math.round(elapsed/total*100)):100;
+      $('#exportProgress').style.width=`${percent}%`;
+      $('#exportStatus').textContent=`렌더링 중 · ${percent}%`;
+      if(elapsed>=total)break;
+      frameIndex+=1;
+      const targetWall=wallStart+frameIndex*(1000/fps);
+      const wait=targetWall-performance.now();
+      if(wait>1) await new Promise((resolve)=>setTimeout(resolve,wait));
+      else if(wait<-1000/fps){
+        frameIndex=Math.max(frameIndex,Math.floor((performance.now()-wallStart)/(1000/fps)));
+      }
+    }
+    currentTime=total;
+    await renderAt(total);
+    if(manualFrames) videoTrack.requestFrame();
+    await new Promise((resolve)=>setTimeout(resolve,90));
+    try{audioSource?.stop();}catch{}
+    recorder.stop();
+    await stopped;
+    stream.getTracks().forEach((track)=>track.stop());
+    const blob=new Blob(chunks,{type:mimeType||'video/webm'});
+    const link=document.createElement('a');
+    const url=URL.createObjectURL(blob);
+    link.href=url;
+    link.download=`motionframe-${new Date().toISOString().slice(0,10)}.webm`;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+    $('#exportStatus').textContent=`완료 · ${(blob.size/1024/1024).toFixed(1)} MB`;
+    $('#exportProgress').style.width='100%';
+    toast('WebM 영상과 사운드 렌더링이 완료되었습니다.');
+  }catch(err){
+    console.error(err); $('#exportStatus').textContent='렌더링 실패'; toast(`내보내기 실패: ${err.message}`,'error');
+  }
+  finally{
+    try{audioSource?.stop();}catch{}
+    try{audioContext?.close();}catch{}
+    exportInProgress=false; $('#exportButton').disabled=false; currentTime=0; renderAll();
+  }
 }
 
 function safeFileName(name){return String(name||'motionframe').replace(/[^a-z0-9가-힣_-]+/gi,'-').replace(/^-+|-+$/g,'')||'motionframe';}
@@ -1449,7 +1695,7 @@ function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const type=
 async function exportProject(){
   const keys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; const assets={};
   for(const key of keys){const blob=await getAsset(key);if(blob)assets[key]={type:blob.type,data:await blobToDataUrl(blob)};}
-  downloadJson({kind:'motionframe-project',version:5,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
+  downloadJson({kind:'motionframe-project',version:6,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
 }
 
 async function importProjectFile(file){
@@ -1461,7 +1707,7 @@ async function importTemplateFile(file){
 }
 
 async function resetProject(){
-  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='web-story';selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
+  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='website-story';selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
 }
 
 function bindInspector(){
@@ -1505,7 +1751,7 @@ async function init(){
   state=loadState();
   selectedSceneId=state.scenes[0]?.id||null;
   directorPlan=state.directorPlan?.pages ? state.directorPlan : null;
-  directorTemplateId=state.directorTemplateId || 'web-story';
+  directorTemplateId=state.directorTemplateId || 'website-story';
   if(directorPlan){
     const grouped=new Map();
     state.scenes.filter((scene)=>Number.isInteger(scene.sourcePageIndex)).forEach((scene)=>{if(!grouped.has(scene.sourcePageIndex))grouped.set(scene.sourcePageIndex,structuredClone(scene));});

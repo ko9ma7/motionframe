@@ -1,16 +1,14 @@
-# MotionFrame Studio v5 — `ko9ma7/motionframe` 업데이트
+# MotionFrame Studio v6 — `ko9ma7/motionframe` 배포
 
-이번 v5는 **URL 캡처 후 사람이 일일이 장면을 만드는 버전이 아닙니다.**
+이번 v6는 첨부된 실제 출력 영상을 기준으로 카메라와 장면 연출 엔진을 다시 수정한 버전입니다.
 
-URL의 실제 DOM 위치와 링크 href를 읽은 뒤 Auto Director가 기본 소개 흐름을 먼저 만듭니다.
+## 1. 기존 저장소 교체
 
-## 1. 기존 GitHub Pages 교체
-
-1. `motionframe-studio-v5` 폴더 **안쪽 파일 전체**를 `ko9ma7/motionframe` 저장소 루트에 덮어씁니다.
+1. `motionframe-studio-v6` 폴더 **안쪽 파일 전체**를 `ko9ma7/motionframe` 저장소 루트에 덮어씁니다.
 2. commit / push 합니다.
-3. Repository → **Actions**에서 `Deploy MotionFrame Studio to GitHub Pages` 성공을 확인합니다.
-4. Repository → **Settings → Pages**의 Source가 **GitHub Actions**인지 확인합니다.
-5. 아래 주소를 확인합니다.
+3. GitHub → Repository → **Actions**에서 `Deploy MotionFrame Studio to GitHub Pages`가 성공했는지 확인합니다.
+4. **Settings → Pages → Source**가 `GitHub Actions`인지 확인합니다.
+5. 다음 주소를 엽니다.
 
 ```text
 https://ko9ma7.github.io/motionframe/
@@ -20,123 +18,102 @@ https://ko9ma7.github.io/motionframe/#templates
 https://ko9ma7.github.io/motionframe/#studio
 ```
 
-v5는 CSS/JavaScript asset에 `?v=5.0.0`을 사용하므로 이전 버전 캐시와 구분됩니다.
+CSS/JavaScript는 `?v=6.0.0`으로 분리되어 이전 캐시와 충돌하지 않습니다.
 
-## 2. 가장 먼저 테스트할 흐름
+## 2. v6 품질을 확인하려면 기존 URL을 다시 분석하세요
 
-### 방법 A — 연결할 URL을 직접 지정
+브라우저에 v5 프로젝트가 남아 있으면 이전 장면 설정도 함께 남아 있을 수 있습니다.
 
-`URL 분석`에서 다음처럼 한 줄에 하나씩 입력합니다.
-
-```text
-https://사이트주소/
-https://사이트주소/features
-https://사이트주소/pricing
-```
-
-`Auto Director로 쇼릴 만들기`를 누릅니다.
-
-성공하면 Auto Director가 각 페이지에서 실제로 찾은:
-
-- H1/H2/H3
-- header/nav 링크
-- button / role=button
-- 일반 링크 / CTA
-- 요소 위치
-- href
-
-를 기준으로 기본 흐름을 생성합니다.
-
-정상적인 예:
+배포 후에는 다음 둘 중 하나를 권장합니다.
 
 ```text
-Home 전체
-→ Home H1
-→ 핵심 기능 H2
-→ Features 메뉴로 이동
-→ Features 메뉴 클릭
-→ Features 페이지 전체
-→ Features H1
-→ 기능 상세 H2
-→ Pricing 메뉴 클릭
-→ Pricing 페이지 전체
-→ Pricing H1
-→ Start free CTA 클릭
-→ 전체 줌아웃
+A. 같은 URL을 다시 입력 → Auto Director로 쇼릴 만들기
+B. 초기화 → URL 다시 입력
 ```
 
-### 방법 B — URL 하나만 입력
+새로 만들어진 장면부터 v6의 Safe Framing / Cinematic Timing이 적용됩니다.
 
-`입력 URL이 1개면 내부 핵심 링크 2개까지 자동 분석`을 켜 두면 Home의 내부 메뉴/CTA 중 제품 소개에 적합한 링크를 최대 2개 더 따라갑니다.
+## 3. 기본적으로 기대해야 하는 결과
 
-자동으로 고른 경로가 마음에 들지 않으면 Auto Director에서 바로 수정합니다.
-
-## 3. 링크마다 동작 지정
-
-`Auto Director` 섹션에서 각 페이지의 **이 페이지의 요소별 연출 지정**을 펼칩니다.
-
-각 제목/메뉴/버튼마다 다음 중 하나를 고를 수 있습니다.
+예를 들어 Home → Features → Pricing을 분석했다면 표준 모드의 기본 흐름은 다음과 비슷해야 합니다.
 
 ```text
-포커스
-클릭
-다음 페이지 이동
-제외
+Home 전체 Establish
+→ Home H1에 부드럽게 도착
+→ 잠시 정착
+→ 제품 UI가 있으면 Product Focus
+→ 핵심 기능
+→ Features 메뉴로 카메라 이동
+→ 커서가 Features에 도착
+→ Click
+→ Features 페이지 Page Flow
+→ Features Hero
+→ 제품/핵심 기능
+→ Pricing 메뉴 Click
+→ Pricing 페이지
+→ CTA Click
+→ 전체 Resolve
 ```
 
-`다음 페이지 이동`을 고르면 대상 페이지도 직접 선택합니다.
+중요한 차이:
 
-예:
+- 한 샷 전체 시간 동안 계속 움직이지 않습니다.
+- 제목이 좌측에 있으면 왼쪽이 잘리지 않도록 프레이밍합니다.
+- 같은 스크린샷끼리는 기본 Crossfade를 하지 않습니다.
+- 실제 페이지 이동에서만 Page Flow 전환을 사용합니다.
+- Click 전에 카메라가 먼저 정착합니다.
+- 커서는 현재 crop/zoom을 계산한 실제 버튼 좌표로 이동합니다.
+
+## 4. 링크마다 동작 수정
+
+Auto Director에서 요소별로:
 
 ```text
-Features 메뉴 → 다음 페이지 이동 → Features
-Login → 제외
-Watch demo → 클릭
-Pricing → 다음 페이지 이동 → Pricing
-Start free → 클릭
+설명 · 줌인
+클릭 연출
+클릭 → 페이지 이동
+사용 안 함
 ```
 
-수정 후 **이 흐름으로 편집**을 누르면 타임라인을 다시 만듭니다.
+을 선택할 수 있습니다.
 
-## 4. 템플릿의 역할
+링크를 바꾼 뒤 `이 흐름으로 편집`을 누르면 Director 장면을 교체해 다시 생성합니다.
 
-v5에서 24개 템플릿은 사이트 내용을 임의로 고르는 용도가 아닙니다.
+## 5. 모션 템플릿은 마지막에 선택
 
-Auto Director의:
+권장 순서:
 
 ```text
-어떤 페이지
-어떤 제목
-어떤 버튼
-어떤 다음 페이지
+URL 분석
+→ Auto Director 흐름 확인
+→ 불필요한 메뉴 제외 / 이동 페이지 수정
+→ 이 흐름으로 편집
+→ 모션 스타일 선택
+→ 필요한 장면만 Motion Path 수정
+→ 사운드 미리듣기
+→ WebM 출력
 ```
 
-구조는 유지하고, 템플릿은 카메라 속도/줌/전환/커서/사운드 스타일만 바꿉니다.
-
-따라서 먼저 Auto Director에서 내용 흐름을 확인한 뒤 모션 스타일을 선택하는 것이 권장 순서입니다.
-
-## 5. 좌표 수정
-
-자동 DOM 좌표가 마음에 들지 않으면 `편집기` 미리보기 위에서 직접 수정합니다.
-
-- 직선: 두 점 클릭
-- 곡선: 여러 점 클릭 후 완료
-- 자유선: 드래그
-
-X/Y 숫자를 직접 입력할 필요는 없습니다.
+템플릿은 “무엇을 보여줄지”를 다시 뒤섞지 않고 연출 성격만 바꿉니다.
 
 ## 6. 사운드
 
-Sound 카드의 ▶ 버튼을 눌러 미리듣습니다.
+각 기본 사운드의 ▶ 버튼으로 먼저 들어볼 수 있습니다.
 
-내장 사운드 또는 MP3/WAV/OGG를 선택하면 WebM 내보내기 시 Canvas 영상과 오디오를 같은 MediaStream으로 기록합니다.
+v6 내장 BGM에는 클릭 및 페이지 전환에 작은 sound accent도 자동으로 들어갑니다. 사용자가 올린 MP3/WAV/OGG도 사용할 수 있습니다.
 
-## 7. 검증
+## 7. WebM
 
-GitHub Actions는 배포 전에 다음 명령을 실행합니다.
+v6는 가능한 브라우저에서 30fps cadence로 프레임을 수동 요청하되 wall-clock 타임라인을 기준으로 진행합니다. 느린 장치에서는 뒤처진 프레임을 따라잡아 영상 시간과 오디오 시간이 따로 늘어나는 현상을 줄입니다.
+
+Chrome / Edge 최신 버전을 권장합니다.
+
+## 8. 배포 전 검증
+
+GitHub Actions에서도 아래 명령을 먼저 실행합니다.
 
 ```bash
 node scripts/verify.mjs
 ```
 
-깨진 JavaScript나 Auto Director 핵심 테스트가 실패하면 Pages 배포도 중단됩니다.
+검증 실패 시 Pages 배포가 중단됩니다.

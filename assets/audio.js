@@ -173,3 +173,46 @@ export function applyFade(gainParam, context, volume, duration, fadeEnabled, sta
   if (remaining > fade) gainParam.setValueAtTime(volume, now + remaining - fade);
   gainParam.linearRampToValueAtTime(0.0001, now + remaining);
 }
+
+function mixEvent(buffer, startTime, duration, generator) {
+  const sampleRate = buffer.sampleRate;
+  const start = Math.max(0, Math.floor(startTime * sampleRate));
+  const end = Math.min(buffer.length, Math.ceil((startTime + duration) * sampleRate));
+  const left = buffer.getChannelData(0);
+  const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
+  for (let i = start; i < end; i += 1) {
+    const local = (i - start) / sampleRate;
+    const p = local / Math.max(.001, duration);
+    const value = generator(local, p, i);
+    const pan = Math.sin((startTime + local) * .9) * .08;
+    left[i] = softClip(left[i] + value * (1 - pan));
+    right[i] = softClip(right[i] + value * (1 + pan));
+  }
+}
+
+export function addSceneAccents(buffer, scenes = []) {
+  let cursor = 0;
+  scenes.forEach((scene) => {
+    const duration = Math.max(.1, Number(scene.duration || 0));
+    if (scene.cursorEnabled) {
+      const clickAt = cursor + duration * (((Number(scene.clickStart) || .72) + (Number(scene.clickEnd) || .84)) / 2);
+      mixEvent(buffer, clickAt, .18, (t, p, i) => {
+        const env = Math.exp(-t * 22);
+        const body = sine(260, t) * .018 + sine(520, t, .3) * .012;
+        const texture = hashNoise(i * .071) * .0045;
+        return (body + texture) * env * (1 - p * .35);
+      });
+    }
+    if (scene.transition === 'page-flow') {
+      const start = cursor + Math.max(.05, duration - .42);
+      mixEvent(buffer, start, .38, (t, p, i) => {
+        const shape = Math.sin(Math.PI * clamp01(p));
+        const sweep = sine(150 + 250 * p, t, .2) * .014;
+        const air = hashNoise(i * .019) * .0055;
+        return (sweep + air) * shape;
+      });
+    }
+    cursor += duration;
+  });
+  return buffer;
+}
