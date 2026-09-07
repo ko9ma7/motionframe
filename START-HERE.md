@@ -1,69 +1,52 @@
-# MotionFrame Studio v8 — 시작하기
+# MotionFrame Studio v10 시작하기
 
-## 기존 `ko9ma7/motionframe` 저장소에 배포
+## GitHub Pages 배포
 
-1. `motionframe-studio-v8-ready.zip`을 풉니다.
-2. `motionframe-studio-v8` 폴더 **안의 파일 전체**를 기존 repository root에 덮어씁니다.
-3. `main` branch에 commit/push합니다.
-4. GitHub → **Actions**에서 `Deploy MotionFrame Studio to GitHub Pages`가 성공하는지 확인합니다.
-5. GitHub → Settings → Pages의 Source가 **GitHub Actions**인지 확인합니다.
+1. `motionframe-studio-v10` 폴더 안의 파일 전체를 GitHub repository root에 올립니다.
+2. GitHub `Settings → Pages`로 이동합니다.
+3. Source를 `GitHub Actions`로 선택합니다.
+4. Actions의 `Deploy MotionFrame Studio to GitHub Pages`가 성공하면 배포 완료입니다.
 
-배포 후:
+## 가장 먼저 시험할 입력
+
+아래 4줄을 그대로 넣습니다.
 
 ```text
 https://ko9ma7.github.io/motionframe/
+https://ko9ma7.github.io/motionframe/#capture
+https://ko9ma7.github.io/motionframe/#templates
+https://ko9ma7.github.io/motionframe/#studio
 ```
 
-브라우저가 이전 JS를 캐시하면 `Ctrl + Shift + R`로 한 번 강력 새로고침하세요. v8 asset에는 `?v=8.0.0`이 붙어 있습니다.
-
-## 가장 먼저 시험할 방법
-
-1. URL 분석 영역에 사이트 URL을 넣습니다.
-2. `분석 범위`에서 기본값을 그대로 사용합니다.
-   - 최대 3페이지
-   - 페이지당 핵심 10개
-   - 한 화면 단위
-   - 제목/미디어/메뉴/CTA
-3. `Auto Director로 쇼릴 만들기`를 누릅니다.
-4. Auto Director에서 먼저 **분석된 요소 선택**을 봅니다.
-5. 필요 없는 제목/버튼은 체크를 끕니다.
-6. `선택으로 Flow 다시 만들기`를 누릅니다.
-7. 아래 Flow가 다음처럼 읽히는지 확인합니다.
+설정은 기본값 그대로 두는 것을 권장합니다.
 
 ```text
-페이지 전체
-→ H1
-→ 제품 화면
-→ 버튼/메뉴 클릭
-→ 실제 목적지 섹션
-→ 다음 기능
-→ 다음 페이지 또는 CTA
-→ Resolve
+캡처 방식: AI 쇼릴 · URL별 뷰포인트
+페이지 범위: 입력 URL 우선 · 최대 5개
+페이지당 요소: AI 추천 6개
+모션 스타일: Impact Product Flow
+사운드: Launch Drive
 ```
 
-8. `플로우를 영상으로 적용`을 누릅니다.
-9. 편집기에서 재생하고 사운드를 미리듣습니다.
-10. WebM으로 내보냅니다.
+`Auto Director로 쇼릴 만들기`를 누릅니다.
 
-## MotionFrame 자체 URL 테스트
+정상이라면 Auto Director에 수십 개의 좌표 장면이 아니라 **4개의 Chapter 카드와 약 12~15개의 Story beat**가 먼저 나타납니다.
 
-MotionFrame처럼 한 페이지 안에 `#capture`, `#director`, `#templates`, `#studio`가 있다면 링크의 목적지 Y 좌표까지 읽어:
+## 이전 프로젝트가 남아 있다면
 
-```text
-Hero
-→ URL로 시작하기 Click
-→ #capture
-→ Auto Director Click
-→ #director
-→ 템플릿 Click
-→ #templates
-→ 편집기 Click
-→ #studio
-→ Resolve
+브라우저 LocalStorage에 예전 Scene이 남아 있을 수 있습니다. v10 배포 후 새 URL Storyboard를 만들면 v10 Director 장면으로 교체됩니다. 테스트 데이터가 필요 없다면 `초기화` 후 다시 생성하는 것이 가장 확실합니다.
+
+## 검증
+
+Node가 있는 환경에서는:
+
+```bash
+node scripts/verify.mjs
 ```
 
-형태로 구성되는 것이 정상입니다.
+을 실행할 수 있습니다. npm install은 필요 없습니다.
 
-## 이전 프로젝트 데이터 주의
 
-v7 프로젝트는 읽을 수 있지만 Director 데이터 모델이 바뀌었습니다. 새 기본 Flow 품질을 확인할 때는 URL을 다시 분석하는 것을 권장합니다.
+## 정상 Target Lock 확인
+
+Flow에서 페이지 이동 비트에는 `TARGET LOCK ✓`가 표시됩니다. MotionFrame 예제에서는 기본적으로 `URL로 시작하기 → #capture`, `모션 스타일 → #templates`, `편집기 → #studio`만 자동 클릭되어야 합니다.

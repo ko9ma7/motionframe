@@ -198,17 +198,25 @@ export function addSceneAccents(buffer, scenes = []) {
       const clickAt = cursor + duration * (((Number(scene.clickStart) || .72) + (Number(scene.clickEnd) || .84)) / 2);
       mixEvent(buffer, clickAt, .18, (t, p, i) => {
         const env = Math.exp(-t * 22);
-        const body = sine(260, t) * .018 + sine(520, t, .3) * .012;
-        const texture = hashNoise(i * .071) * .0045;
+        const body = sine(180, t) * .026 + sine(360, t, .3) * .014;
+        const texture = hashNoise(i * .071) * .007;
         return (body + texture) * env * (1 - p * .35);
+      });
+    }
+    if (['punch','chapter','spotlight'].includes(scene.directorImpact)) {
+      mixEvent(buffer, cursor + .02, .28, (t, p, i) => {
+        const shape = Math.sin(Math.PI * clamp01(p));
+        const air = hashNoise(i * .031) * .0065;
+        const lift = sine(90 + 300 * p, t, .1) * .008;
+        return (air + lift) * shape;
       });
     }
     if (scene.transition === 'page-flow') {
       const start = cursor + Math.max(.05, duration - .42);
       mixEvent(buffer, start, .38, (t, p, i) => {
         const shape = Math.sin(Math.PI * clamp01(p));
-        const sweep = sine(150 + 250 * p, t, .2) * .014;
-        const air = hashNoise(i * .019) * .0055;
+        const sweep = sine(110 + 420 * p, t, .2) * .022;
+        const air = hashNoise(i * .019) * .011;
         return (sweep + air) * shape;
       });
     }

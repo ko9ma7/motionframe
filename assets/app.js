@@ -1,6 +1,6 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=8.0.0';
-import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=8.0.0';
-import { buildBeatSpecs, createDirectorPlan, moveFlowStep, planSummary, rebuildFlowFromSelection, removeFlowStep, suggestInternalLinks, toggleElementSelection, updateFlowStep } from './director.js?v=8.0.0';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=10.0.0';
+import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=10.0.0';
+import { buildBeatSpecs, createDirectorPlan, moveFlowStep, planSummary, rebuildFlowFromSelection, removeFlowStep, suggestInternalLinks, toggleElementSelection, updateFlowStep } from './director.js?v=10.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -15,14 +15,14 @@ function windowProgress(progress, start, end, easing = 'cinematic') {
   if (easing === 'linear') return p;
   return easeInOut(p);
 }
-const STORAGE_KEY = 'motionframe:v8:project';
+const STORAGE_KEY = 'motionframe:v10:project';
 const LEGACY_STORAGE_KEYS = ['motionframe:v7:project','motionframe:v6:project','motionframe:v5:project'];
-const TEMPLATE_KEY = 'motionframe:v8:templates';
-const LEGACY_TEMPLATE_KEYS = ['motionframe:v7:templates','motionframe:v6:templates','motionframe:v5:templates'];
+const TEMPLATE_KEY = 'motionframe:v10:templates';
+const LEGACY_TEMPLATE_KEYS = ['motionframe:v9:templates','motionframe:v7:templates','motionframe:v6:templates','motionframe:v5:templates'];
 const DB_NAME = 'motionframe-studio-v5';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
-const DOM_FUNCTION = `({page:p})=>p.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,nav a,button,[role=button],main a[href],main img,main video,[class*=mockup],[class*=preview]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,e:a.slice(0,120).map((e,i)=>{let r=e.getBoundingClientRect(),s=getComputedStyle(e),g=e.tagName.toLowerCase(),m=g==='img'||g==='video',k=e.hash&&document.getElementById(e.hash.slice(1)),z=k&&k.getBoundingClientRect(),t=(e.innerText||e.textContent||e.getAttribute('aria-label')||e.getAttribute('alt')||(m?'Product preview':'')).trim().replace(/\s+/g,' ').slice(0,100);if(!t||r.width<4||r.height<4||s.display==='none'||s.visibility==='hidden')return null;return{id:'e'+i,g,r:e.getAttribute('role')||'',t,u:e.href||'',x:r.left+r.width/2+scrollX,y:r.top+r.height/2+scrollY,o:r.top+scrollY,w:r.width,h:r.height,X:z?z.left+z.width/2+scrollX:0,Y:z?z.top+z.height/2+scrollY:0,n:!!e.closest('nav'),b:!!e.closest('header')&&g==='a'}}).filter(Boolean)}})`;
+const DOM_FUNCTION = `({page:p})=>p.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,nav a,button,a[href],img,video,canvas,textarea,[class*=preview],[class*=browser]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,sx:scrollX,sy:scrollY,e:a.slice(0,120).map((e,i)=>{let r=e.getBoundingClientRect(),g=e.tagName.toLowerCase(),m=/^(img|video|canvas|textarea)$/.test(g)||/preview|browser/.test(e.className||''),k=e.hash&&document.getElementById(e.hash.slice(1)),z=k&&k.getBoundingClientRect(),t=(m?(e.ariaLabel||e.alt||e.previousElementSibling?.innerText||'Product area'):(e.innerText||e.textContent||e.ariaLabel||'')).trim().replace(/\s+/g,' ').slice(0,80);return !t||r.width<8||r.height<8?null:{i:'e'+i,g,r:m?'surface':'',t,u:e.href||'',x:r.x+r.width/2+scrollX,y:r.y+r.height/2+scrollY,o:r.y+scrollY,w:r.width,h:r.height,X:z?z.x+z.width/2+scrollX:0,Y:z?z.y+z.height/2+scrollY:0,T:z?z.y+scrollY:0,n:!!e.closest('nav')}}).filter(Boolean)}})`;
 
 let dbPromise;
 let state;
@@ -174,7 +174,7 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 8,
+    version: 9,
     aspect: '16:9',
     resolution: '1280x720',
     frameStyle: 'browser',
@@ -193,7 +193,7 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 8,
+    version: 9,
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
     frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
@@ -295,6 +295,7 @@ function normalizePageAnalysis(payload, url, captureMode = 'full') {
     h: Number(item.h || 0),
     targetX: Number(item.targetX || item.X || 0),
     targetY: Number(item.targetY || item.Y || 0),
+    targetTop: Number(item.targetTop || item.T || 0),
     inNav: Boolean(item.inNav || item.n),
     brand: Boolean(item.brand || item.b)
   })).filter((item) => item.text) : [];
@@ -312,6 +313,8 @@ function normalizePageAnalysis(payload, url, captureMode = 'full') {
     documentHeight: Number(fn?.h || 0),
     viewportWidth: Number(fn?.iw || 0),
     viewportHeight: Number(fn?.ih || 0),
+    scrollX: Number(fn?.sx || 0),
+    scrollY: Number(fn?.sy || 0),
     captureMode,
     geometrySource: elements.length ? 'browser-dom' : 'semantic-fallback'
   };
@@ -411,6 +414,21 @@ function parseUrlList(value) {
   const lines = String(value || '').split(/\n+/).map((item) => item.trim()).filter(Boolean);
   if (!lines.length) throw new Error('사이트 URL을 입력해 주세요.');
   return lines.slice(0, 8).map(normalizeUrl);
+}
+
+function documentKey(value) {
+  try { const u=new URL(value); u.hash=''; return `${u.origin}${u.pathname}${u.search}`; } catch { return String(value||''); }
+}
+
+function storyCaptureMode(url, requestedMode, allUrls=[]) {
+  if (requestedMode === 'viewport' || requestedMode === 'story') return 'viewport';
+  if (!url) return requestedMode;
+  try {
+    const u=new URL(url);
+    const sameDocumentViews=allUrls.filter(item=>documentKey(item)===documentKey(url)).length>1;
+    if (u.hash || sameDocumentViews) return 'viewport';
+  } catch {}
+  return requestedMode;
 }
 
 function sceneAssetRef(scene) { return scene.assetKey || scene.imageUrl; }
@@ -663,6 +681,7 @@ async function drawScene(scene, progress, opacity = 1, transform = {}) {
   const contentH = geom.h - geom.chrome;
   ctx.save();
   ctx.globalAlpha = opacity;
+  ctx.filter = transform.filter || 'none';
   const impactOuterScale = scene.directorImpact && !['reveal','resolve'].includes(scene.directorImpact)
     ? 1 + clamp((zoom - 100) / 60, 0, 1) * .035
     : 1;
@@ -769,9 +788,10 @@ async function renderAt(time) {
     await drawScene(next,0,transP,{ scale:.965+eased*.035 });
   } else if (scene.transition === 'page-flow') {
     const eased = easeInOut(transP);
-    const outgoingOpacity = 1 - transP * .78;
-    await drawScene(scene,p,outgoingOpacity,{ scale:1-eased*.10, x:-w*.032*eased, y:h*.008*eased });
-    await drawScene(next,0,transP,{ scale:1.08-eased*.08, x:w*.055*(1-eased), y:-h*.012*(1-eased) });
+    const outgoingOpacity = 1 - transP * .94;
+    await drawScene(scene,p,outgoingOpacity,{ scale:1-eased*.16, x:-w*.065*eased, y:h*.018*eased, filter:`blur(${(eased*2.4).toFixed(2)}px)` });
+    ctx.save(); ctx.globalAlpha=Math.sin(Math.PI*transP)*.11; ctx.fillStyle='#b8c9ff'; ctx.fillRect(0,0,w,h); ctx.restore();
+    await drawScene(next,0,Math.min(1,transP*1.25),{ scale:1.22-eased*.22, x:w*.09*(1-eased), y:-h*.035*(1-eased), filter:`blur(${((1-eased)*3.0).toFixed(2)}px)` });
   } else if (scene.transition === 'slide') {
     await drawScene(scene,p,1,{ x:-w*transP });
     await drawScene(next,0,1,{ x:w*(1-transP) });
@@ -1092,14 +1112,14 @@ function flowActionLabel(value) {
 }
 
 function flowImpactLabel(value) {
-  return { reveal:'Reveal', punch:'Punch Zoom', sweep:'Sweep', orbit:'Arc Orbit', track:'Scroll Track', whip:'Whip Scroll', click:'Cursor Impact', navigate:'Page Impact', resolve:'Resolve' }[value] || value;
+  return { reveal:'Reveal', punch:'Punch Zoom', chapter:'Chapter Slam', spotlight:'Spotlight Push', sweep:'Sweep', orbit:'Arc Orbit', track:'Scroll Track', whip:'Whip Scroll', click:'Cursor Impact', navigate:'Page Impact', resolve:'Resolve' }[value] || value;
 }
 
 function currentAnalysisScope() {
   const roles = $$('[data-analysis-role]:checked').map((input) => input.dataset.analysisRole).filter(Boolean);
   return {
-    pageLimit: Number($('#analysisPageLimitSelect')?.value || 3),
-    elementLimit: Number($('#analysisElementLimitSelect')?.value || 10),
+    pageLimit: Number($('#analysisPageLimitSelect')?.value || 5),
+    elementLimit: Number($('#analysisElementLimitSelect')?.value || 6),
     grouping: $('#analysisBandSelect')?.value || 'screen',
     roles: roles.length ? roles : ['headings','media','navigation','actions']
   };
@@ -1114,38 +1134,37 @@ function renderAnalysisBoard() {
   if (!root) return;
   root.innerHTML = '';
   if (!directorPlan?.pages?.length) {
-    root.innerHTML = `<div class="analysis-empty"><strong>URL을 분석하면 페이지별 요소가 실제 위치 순서로 나타납니다.</strong><span>제목·제품 화면·섹션·메뉴·버튼 중 사용할 항목만 체크하면 아래 Flow가 자동 재구성됩니다.</span></div>`;
+    root.innerHTML = `<div class="analysis-empty"><strong>URL을 분석하면 AI가 먼저 챕터별 핵심 요소를 2~4개로 압축합니다.</strong><span>원본 DOM 좌표는 고급 목록에 남기고, 기본 화면에는 실제 영상에 쓸 제목·제품 화면·버튼만 보여줍니다.</span></div>`;
     return;
   }
   directorPlan.pages.forEach((page, pageIndex) => {
     const card = document.createElement('article');
-    card.className = 'analysis-page-card';
-    const selectedCount = page.elements.filter((element) => element.selected).length;
-    const markers = page.elements.slice(0, 26).map((element) => `<i class="analysis-map-dot role-${escapeHtml(element.role)} ${element.selected ? 'selected' : ''}" style="left:${clamp(element.x,3,97)}%;top:${clamp(element.y,2,98)}%" title="${escapeHtml(element.text)}"></i>`).join('');
+    card.className = 'analysis-page-card chapter-card';
+    const selected = page.elements.filter((element) => element.selected);
+    const markers = page.elements.map((element) => `<i class="analysis-map-dot role-${escapeHtml(element.role)} ${element.selected ? 'selected' : ''}" style="left:${clamp(element.x,3,97)}%;top:${clamp(element.y,2,98)}%" title="${escapeHtml(element.text)}"></i>`).join('');
     card.innerHTML = `
-      <header class="analysis-page-head">
-        <div><strong>${String(pageIndex + 1).padStart(2,'0')} · ${escapeHtml(page.title)}</strong><span>${escapeHtml(page.url)}</span></div>
-        <b>${selectedCount}/${page.elements.length} 선택</b>
+      <header class="analysis-page-head chapter-head">
+        <div><span class="chapter-number">CHAPTER ${String(pageIndex + 1).padStart(2,'0')}</span><strong>${escapeHtml(page.chapterLabel || page.title)}</strong><span>${escapeHtml(page.url)}</span></div>
+        <b>${selected.length} 핵심 비트</b>
       </header>
-      <div class="analysis-page-body">
-        <div class="analysis-map" aria-label="페이지 요소 위치 미니맵"><span>TOP</span>${markers}<em>BOTTOM</em></div>
-        <div class="analysis-element-list"></div>
-      </div>`;
-    const list = card.querySelector('.analysis-element-list');
-    page.elements.forEach((element) => {
-      const row = document.createElement('label');
-      row.className = `analysis-element-row role-${element.role}`;
+      <div class="chapter-summary">
+        <div class="analysis-map chapter-map" aria-label="현재 캡처 뷰포인트의 요소 위치"><span>VIEW</span>${markers}<em>${escapeHtml(page.viewIntent || 'section')}</em></div>
+        <div class="chapter-beats"></div>
+      </div>
+      <details class="raw-analysis"><summary>고급 · 분석 후보 ${page.elements.length}개 보기</summary><div class="analysis-element-list"></div></details>`;
+    const beats = card.querySelector('.chapter-beats');
+    selected.forEach((element, idx) => {
       const href = element.href ? (() => { try { const u = new URL(element.href); return `${u.pathname || '/'}${u.hash || ''}`; } catch { return element.href; } })() : '';
-      row.innerHTML = `<input type="checkbox" ${element.selected ? 'checked' : ''} />
-        <span class="analysis-role">${escapeHtml(directorRoleLabel(element.role))}</span>
-        <span class="analysis-copy"><strong>${escapeHtml(element.text)}</strong><small>${escapeHtml(positionPercentLabel(element))}${href ? ` · → ${escapeHtml(href)}` : ''}</small></span>`;
-      row.querySelector('input').addEventListener('change', (event) => {
-        toggleElementSelection(directorPlan, pageIndex, element.id, event.target.checked);
-        state.directorPlan = directorPlan;
-        saveState();
-        renderDirectorPlan();
-      });
-      list.append(row);
+      const row=document.createElement('label');row.className=`chapter-beat role-${element.role}`;
+      row.innerHTML=`<input type="checkbox" checked><span class="chapter-beat-index">${String(idx+1).padStart(2,'0')}</span><span class="analysis-role">${escapeHtml(directorRoleLabel(element.role))}</span><span class="analysis-copy"><strong>${escapeHtml(element.text)}</strong><small>${escapeHtml(positionPercentLabel(element))}${href?` · → ${escapeHtml(href)}`:''}</small></span>`;
+      row.querySelector('input').addEventListener('change',(event)=>{toggleElementSelection(directorPlan,pageIndex,element.id,event.target.checked);state.directorPlan=directorPlan;saveState();renderDirectorPlan();});
+      beats.append(row);
+    });
+    const list=card.querySelector('.analysis-element-list');
+    page.elements.filter(element=>!element.selected).forEach((element)=>{
+      const row=document.createElement('label');row.className=`analysis-element-row role-${element.role}`;
+      row.innerHTML=`<input type="checkbox"><span class="analysis-role">${escapeHtml(directorRoleLabel(element.role))}</span><span class="analysis-copy"><strong>${escapeHtml(element.text)}</strong><small>${escapeHtml(positionPercentLabel(element))}</small></span>`;
+      row.querySelector('input').addEventListener('change',(event)=>{toggleElementSelection(directorPlan,pageIndex,element.id,event.target.checked);state.directorPlan=directorPlan;saveState();renderDirectorPlan();});list.append(row);
     });
     root.append(card);
   });
@@ -1170,7 +1189,7 @@ function renderDirectorPlan() {
   }
 
   const summary = planSummary(directorPlan);
-  $('#directorSummary').textContent = `${summary.pages} pages · ${summary.selected} selected · ${summary.beats} flow steps`;
+  $('#directorSummary').textContent = `${summary.pages} chapters · ${summary.selected} key targets · ${summary.beats} cinematic beats`;
   root.innerHTML = '';
   const flow = directorPlan.flow || [];
   flow.forEach((step, index) => {
@@ -1179,14 +1198,14 @@ function renderDirectorPlan() {
     const row = document.createElement('article');
     row.className = `flow-step-row action-${step.action} ${step.enabled === false ? 'disabled' : ''}`;
     const pageOptions = directorPlan.pages.map((target, targetIndex) => `<option value="${targetIndex}" ${Number(step.targetPageIndex)===targetIndex?'selected':''}>${targetIndex + 1}. ${escapeHtml(target.title)}</option>`).join('');
-    const canNavigate = Boolean(element?.href) || ['nav','cta','link','control'].includes(element?.role);
+    const canNavigate = Boolean(element?.href);
     const canAnchor = Number.isFinite(Number(element?.targetY)) && Number(element?.targetY) > 0;
     row.innerHTML = `
       <span class="flow-index">${String(index + 1).padStart(2,'0')}</span>
       <div class="flow-subject">
         <small>${escapeHtml(page?.title || 'Page')} · ${escapeHtml(directorRoleLabel(step.role))}</small>
         <strong>${escapeHtml(step.label || element?.text || flowActionLabel(step.action))}</strong>
-        <span>${element ? escapeHtml(positionPercentLabel(element)) : escapeHtml(flowActionLabel(step.action))}</span>
+        <span>${element ? escapeHtml(positionPercentLabel(element)) : escapeHtml(flowActionLabel(step.action))}${step.action==='navigate'&&element?.href&&Number.isInteger(Number(step.targetPageIndex))?` · TARGET LOCK ✓ · → ${escapeHtml(directorPlan.pages[Number(step.targetPageIndex)]?.chapterLabel||'next')}`:''}</span>
       </div>
       <label class="flow-control"><span>동작</span><select class="flow-action">
         ${step.elementId ? `<option value="focus" ${step.action==='focus'?'selected':''}>요소 집중</option><option value="track" ${step.action==='track'?'selected':''}>확대 유지 · 따라가기</option>${canNavigate?`<option value="click" ${step.action==='click'?'selected':''}>커서 이동 · 클릭</option>${canAnchor?`<option value="anchor" ${step.action==='anchor'?'selected':''}>클릭 → 같은 페이지 이동</option>`:''}<option value="navigate" ${step.action==='navigate'?'selected':''}>클릭 → 다음 페이지</option>`:''}` : `<option value="establish" ${step.action==='establish'?'selected':''}>페이지 전체 공개</option><option value="track" ${step.action==='track'?'selected':''}>목적지로 이동</option><option value="resolve" ${step.action==='resolve'?'selected':''}>마무리 줌아웃</option>`}
@@ -1194,6 +1213,8 @@ function renderDirectorPlan() {
       <label class="flow-control"><span>연출</span><select class="flow-impact">
         <option value="reveal" ${step.impact==='reveal'?'selected':''}>Reveal</option>
         <option value="punch" ${step.impact==='punch'?'selected':''}>Punch Zoom</option>
+        <option value="chapter" ${step.impact==='chapter'?'selected':''}>Chapter Slam</option>
+        <option value="spotlight" ${step.impact==='spotlight'?'selected':''}>Spotlight Push</option>
         <option value="sweep" ${step.impact==='sweep'?'selected':''}>Sweep</option>
         <option value="orbit" ${step.impact==='orbit'?'selected':''}>Arc Orbit</option>
         <option value="track" ${step.impact==='track'?'selected':''}>Scroll Track</option>
@@ -1250,13 +1271,15 @@ function rebuildDirectorFromSelection() {
 function shotTiming(intent, impact = '') {
   const key = impact || intent;
   if (intent === 'establish') return { duration:1.55, moveStart:.02, moveEnd:.72, cursorStart:.18, cursorEnd:.58, clickStart:.72, clickEnd:.84 };
-  if (key === 'whip') return { duration:1.65, moveStart:.02, moveEnd:.62, cursorStart:.18, cursorEnd:.58, clickStart:.70, clickEnd:.82 };
+  if (key === 'chapter') return { duration:1.2, moveStart:.01, moveEnd:.50, cursorStart:.16, cursorEnd:.50, clickStart:.64, clickEnd:.78 };
+  if (key === 'spotlight') return { duration:1.35, moveStart:.01, moveEnd:.56, cursorStart:.16, cursorEnd:.52, clickStart:.66, clickEnd:.80 };
+  if (key === 'whip') return { duration:1.2, moveStart:.01, moveEnd:.48, cursorStart:.16, cursorEnd:.50, clickStart:.62, clickEnd:.76 };
   if (key === 'orbit') return { duration:1.9, moveStart:.02, moveEnd:.72, cursorStart:.18, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
   if (intent === 'track' || key === 'track') return { duration:2.05, moveStart:.02, moveEnd:.76, cursorStart:.2, cursorEnd:.66, clickStart:.76, clickEnd:.86 };
-  if (intent === 'navigate') return { duration:1.75, moveStart:.02, moveEnd:.38, cursorStart:.18, cursorEnd:.58, clickStart:.64, clickEnd:.78 };
-  if (intent === 'click') return { duration:1.55, moveStart:.02, moveEnd:.36, cursorStart:.16, cursorEnd:.56, clickStart:.62, clickEnd:.76 };
+  if (intent === 'navigate') return { duration:.95, moveStart:.01, moveEnd:.34, cursorStart:.12, cursorEnd:.48, clickStart:.54, clickEnd:.70 };
+  if (intent === 'click') return { duration:1.0, moveStart:.01, moveEnd:.30, cursorStart:.10, cursorEnd:.46, clickStart:.52, clickEnd:.68 };
   if (intent === 'resolve') return { duration:1.45, moveStart:.04, moveEnd:.82, cursorStart:.2, cursorEnd:.62, clickStart:.72, clickEnd:.84 };
-  return { duration:key === 'punch' ? 1.65 : 1.85, moveStart:.02, moveEnd:.70, cursorStart:.18, cursorEnd:.62, clickStart:.70, clickEnd:.82 };
+  return { duration:key === 'punch' ? 1.45 : 1.35, moveStart:.01, moveEnd:.54, cursorStart:.14, cursorEnd:.50, clickStart:.64, clickEnd:.78 };
 }
 
 function cameraFramesForImpact(impact, start, target) {
@@ -1265,8 +1288,17 @@ function cameraFramesForImpact(impact, start, target) {
     return [base({ ...target, zoom:Math.max(110,start.zoom) },{t:0}), base({ ...target, zoom:103 },{t:.54,ease:'out'}), base(target,{t:.78,ease:'out'}), base(target,{t:1})];
   }
   if (impact === 'punch') {
-    const overshoot={...target,zoom:Math.min(160,target.zoom+10)};
+    const overshoot={...target,zoom:Math.min(194,target.zoom+24)};
     return [base(start,{t:0}),base({x:lerp(start.x,target.x,.72),y:lerp(start.y,target.y,.72),zoom:overshoot.zoom,anchorX:target.anchorX,anchorY:target.anchorY},{t:.46,ease:'snap'}),base(target,{t:.66,ease:'out'}),base(target,{t:1})];
+  }
+  if (impact === 'chapter') {
+    const slam={...target,zoom:Math.min(196,target.zoom+28)};
+    const recoil={...target,zoom:Math.max(126,target.zoom-8)};
+    return [base({...start,zoom:Math.max(104,start.zoom)},{t:0}),base(slam,{t:.34,ease:'snap'}),base(recoil,{t:.52,ease:'out'}),base(target,{t:.68,ease:'snap'}),base(target,{t:1})];
+  }
+  if (impact === 'spotlight') {
+    const side={x:clamp(lerp(start.x,target.x,.55)+(target.x>=start.x?5:-5),1,99),y:clamp(lerp(start.y,target.y,.48)-3,1,99),zoom:Math.min(196,target.zoom+22),anchorX:target.anchorX,anchorY:target.anchorY};
+    return [base(start,{t:0}),base(side,{t:.38,ease:'snap'}),base({...target,zoom:Math.min(176,target.zoom+10)},{t:.56,ease:'out'}),base(target,{t:.72,ease:'out'}),base(target,{t:1})];
   }
   if (impact === 'sweep') {
     const dir=target.x>=start.x?1:-1;
@@ -1290,8 +1322,8 @@ function cameraFramesForImpact(impact, start, target) {
     return [base({...start,zoom:Math.max(start.zoom,trackZoom-4)},{t:0}),base(mid,{t:.46,ease:'inout'}),base({...target,zoom:trackZoom},{t:.82,ease:'inout'}),base({...target,zoom:Math.max(126,target.zoom)},{t:1,ease:'out'})];
   }
   if (impact === 'click' || impact === 'navigate') {
-    const settle={...target,zoom:Math.min(158,target.zoom+4)};
-    const pulse={...target,zoom:Math.min(160,target.zoom+7)};
+    const settle={...target,zoom:Math.min(176,target.zoom+12)};
+    const pulse={...target,zoom:Math.min(182,target.zoom+20)};
     return [base(start,{t:0}),base(settle,{t:.34,ease:'snap'}),base(target,{t:.54,ease:'out'}),base(pulse,{t:.70,ease:'out'}),base(target,{t:.84,ease:'out'}),base(target,{t:1})];
   }
   if (impact === 'resolve') {
@@ -1315,7 +1347,7 @@ function buildDirectorScenes() {
     const timing = shotTiming(beat.intent || 'focus', impact);
     const samePage = previous.pageIndex === beat.pageIndex;
     const target = {
-      x:clamp(Number(beat.x ?? 50),1,99), y:clamp(Number(beat.y ?? 50),1,99), zoom:clamp(Number(beat.zoom || 132),100,160),
+      x:clamp(Number(beat.x ?? 50),1,99), y:clamp(Number(beat.y ?? 50),1,99), zoom:clamp(Number(beat.zoom || 152),100,194),
       anchorX:clamp(Number(beat.anchorX ?? .5),.18,.82), anchorY:clamp(Number(beat.anchorY ?? .5),.16,.84)
     };
     let start = samePage
@@ -1355,7 +1387,7 @@ function buildDirectorScenes() {
   state.aspect=template.aspect||state.aspect;
   state.frameStyle=template.frameStyle||state.frameStyle;
   if(template.audioPreset)state.audio.preset=normalizeAudioPreset(template.audioPreset);
-  return scenes.slice(0,36);
+  return scenes.slice(0,20);
 }
 
 async function applyDirectorPlan() {
@@ -1371,7 +1403,7 @@ async function applyDirectorPlan() {
   saveState();
   await renderAll();
   const summary = planSummary(directorPlan);
-  setCaptureStatus('Auto Director 적용 완료', `${summary.pages}개 페이지 · ${summary.beats}개 기본 장면 · 링크 이동 ${summary.navigations}개`, 'success');
+  setCaptureStatus('Auto Director 적용 완료', `${summary.pages}개 챕터 · ${summary.beats}개 시네마틱 비트 · 연결 클릭 ${summary.navigations}개`, 'success');
   toast('페이지 구조와 링크 흐름을 편집기에 적용했습니다.');
   location.hash = 'studio';
 }
@@ -1494,8 +1526,9 @@ async function captureUrl(asStory) {
     return;
   }
   const analysisScope = currentAnalysisScope();
-  urls = asStory ? urls.slice(0, analysisScope.pageLimit) : urls.slice(0, 1);
-  const mode = $('#captureModeSelect').value;
+  urls = asStory ? (urls.length > 1 ? urls.slice(0, 8) : urls.slice(0, analysisScope.pageLimit)) : urls.slice(0, 1);
+  const requestedMode = $('#captureModeSelect').value;
+  const initialMode = storyCaptureMode(urls[0], requestedMode, urls);
   const viewport = $('#viewportSelect').value;
   const autoFollow = asStory && urls.length === 1 && Boolean($('#autoFollowInput')?.checked) && analysisScope.pageLimit > 1;
   const storyButton = $('#urlStoryButton');
@@ -1504,7 +1537,7 @@ async function captureUrl(asStory) {
   storyButton.disabled = true;
   singleButton.disabled = true;
   storyButton.textContent = '분석 중…';
-  setCaptureStatus('사이트 구조 분석 시작', `${urls.length}개 URL · DOM 좌표 + 링크 + ${mode === 'full' ? '전체 페이지 캡처' : '첫 화면 캡처'}`, 'loading');
+  setCaptureStatus('사이트 구조 분석 시작', `${urls.length}개 URL · Target Lock · ${initialMode === 'full' ? '전체 페이지' : 'URL별 현재 화면'} 캡처`, 'loading');
   const bases = [];
   const failures = [];
   const queue = [...urls];
@@ -1516,7 +1549,8 @@ async function captureUrl(asStory) {
       const host = new URL(url).hostname;
       setCaptureStatus(`페이지 분석 ${index + 1}/${queue.length}`, `${host} · 화면과 DOM 좌표를 함께 읽는 중`, 'loading');
       try {
-        const result = await fetchUrlCapture(url, mode, viewport);
+        const captureModeForThisUrl = storyCaptureMode(url, requestedMode, queue);
+        const result = await fetchUrlCapture(url, captureModeForThisUrl, viewport);
         const sceneName = result.analysis?.title || host;
         const scene = await makeImageSceneFromBlob(result.blob, { name: sceneName, sourceType: 'url', sourceUrl: url, analysis: result.analysis });
         bases.push(scene);
@@ -1532,7 +1566,7 @@ async function captureUrl(asStory) {
             setCaptureStatus('다음 핵심 링크 발견', `${suggestion.text} → ${new URL(suggestion.href).pathname || '/'} 페이지를 이어서 분석합니다.`, 'loading');
           }
         }
-        setCaptureStatus(`페이지 분석 완료 ${index + 1}/${queue.length}`, `${sceneName} · ${result.analysis?.elements?.length || 0}개 DOM 요소 · ${lastCaptureProvider}`, 'loading');
+        setCaptureStatus(`페이지 분석 완료 ${index + 1}/${queue.length}`, `${sceneName} · ${result.analysis?.elements?.length || 0}개 DOM 요소 · ${result.analysis?.captureMode==='viewport'?'현재 화면 좌표 잠금':'전체 페이지 좌표'} · ${lastCaptureProvider}`, 'loading');
       } catch (error) {
         console.error(error);
         failures.push(`${host}: ${error.message}`);
@@ -1543,7 +1577,7 @@ async function captureUrl(asStory) {
     if (asStory) {
       directorBases = bases;
       directorTemplateId = $('#captureTemplateSelect').value || 'impact-flow';
-      directorPlan = createDirectorPlan(bases, { scope: analysisScope });
+      directorPlan = createDirectorPlan(bases, { scope: { ...analysisScope, pageLimit: Math.max(analysisScope.pageLimit, bases.length) } });
       state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId;
       renderDirectorPlan();
       const autoScenes = buildDirectorScenes();
@@ -1557,8 +1591,8 @@ async function captureUrl(asStory) {
       const summary = planSummary(directorPlan);
       const geometryCount = bases.filter((scene) => scene.sourceAnalysis?.geometrySource === 'browser-dom').length;
       const note = failures.length ? ` · ${failures.length}개 실패` : '';
-      setCaptureStatus('기본 연출안 생성 완료', `${summary.pages}개 페이지 · ${summary.beats} beats · 실제 DOM 좌표 ${geometryCount}/${bases.length} · 링크 이동 ${summary.navigations}개${note}`, failures.length ? 'warning' : 'success');
-      toast('기본 스토리보드를 자동 생성했습니다. 링크별 동작을 확인하거나 바로 편집할 수 있습니다.');
+      setCaptureStatus('기본 연출안 생성 완료', `${summary.pages}개 챕터 · ${summary.beats} cinematic beats · DOM 좌표 ${geometryCount}/${bases.length} · 연결 클릭 ${summary.navigations}개${note}`, failures.length ? 'warning' : 'success');
+      toast('Target Lock 완료: 다음 URL과 정확히 연결되는 요소만 클릭합니다.');
       location.hash = 'director';
     } else {
       if (isDemo) state.scenes = [];

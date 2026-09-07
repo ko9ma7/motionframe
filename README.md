@@ -1,182 +1,178 @@
-# MotionFrame Studio v8
+# MotionFrame Studio v10
 
-URL을 분석해 **페이지 범위 → 요소 선택 → 위치 기반 Flow → 모션 → 사운드 → WebM** 순서로 쇼케이스 영상을 만드는 GitHub Pages용 정적 웹앱입니다.
+여러 웹 URL을 **입력 순서대로 제품 데모의 챕터**로 해석하고, 각 화면에서 실제로 보이는 제목·제품/UI 표면·버튼만 골라 강한 카메라 모션과 클릭을 연결한 뒤 WebM으로 렌더링하는 GitHub Pages 정적 웹앱입니다.
 
-v8의 핵심은 Scene 좌표를 먼저 편집하지 않는 것입니다. 사이트에서 읽은 제목·제품 화면·섹션·메뉴·버튼을 실제 화면 위치 순서로 보여주고, 사용자가 체크한 요소만 이용해 Flow를 다시 계산합니다.
+## v10에서 바뀐 기준
 
-## Preview flow
+이전 버전의 문제는 페이지 전체 DOM을 너무 많이 선택해 `Scene → 좌표`가 먼저 나왔다는 점입니다. v10는 다음 순서로 동작합니다.
 
 ```text
-URL 입력
+URL 목록
   ↓
-분석 범위 선택
-- 최대 1 / 3 / 5 pages
-- 페이지당 6 / 10 / 16 elements
-- 한 화면 / 섹션 / 요소 단위
-- 제목 / 미디어 / 메뉴 / CTA 종류 체크
+각 URL을 하나의 Chapter로 해석
   ↓
-실제 DOM 좌표 분석
+같은 문서의 #hash URL은 중복 페이지가 아니라 별도 Viewpoint로 처리
   ↓
-페이지별 Position Map + 체크 목록
+현재 viewport에서 실제로 보이는 DOM만 선택
   ↓
-Flow 자동 구성
-전체 → Hero → Product → 버튼 Click → 실제 목적지 → 다음 선택 요소
+Chapter당 핵심 2~4개 자동 선택
+  - H1 / section title
+  - product UI / canvas / preview / input surface
+  - primary action
+  - 다음 URL을 가리키는 menu / CTA
   ↓
-Motion style
+AI Storyboard
   ↓
-Sound
+Punch / Chapter Slam / Spotlight / Cursor Impact / Page Impact
   ↓
-WebM
+Scene + camera keyframes
+  ↓
+Sound + WebM
 ```
 
-## v8 주요 기능
+## 예: MotionFrame 자체를 입력할 때
 
-### 1. Analysis Scope
+```text
+https://ko9ma7.github.io/motionframe/
+https://ko9ma7.github.io/motionframe/#capture
+https://ko9ma7.github.io/motionframe/#templates
+https://ko9ma7.github.io/motionframe/#studio
+```
 
-URL을 넣기 전에 분석 한도를 먼저 정합니다.
+기본 Storyboard는 대략 다음처럼 압축됩니다.
 
-- 페이지 범위: 1 / 3 / 5
-- 페이지당 요소: 6 / 10 / 16
-- 위치 묶음: 한 화면 / 섹션 / 요소 단위
-- 분석 종류: 제목·섹션, 제품 화면, 메뉴·링크, 버튼·CTA, 브랜드
+```text
+01 Intro 전체 Reveal
+02 Hero H1 Punch
+03 Hero 제품 프리뷰 Spotlight
+04 "URL로 시작하기" Cursor Click → #capture
+05 #capture 제목 Chapter Slam
+06 URL 입력 영역 Spotlight
+07 Auto Director 버튼 Spotlight
+08 "모션 스타일" 정확한 링크 Click → #templates
+09 #templates 제목 Chapter Slam
+10 Impact Product Flow 집중
+11 "편집기" 정확한 링크 Click → #studio
+12 #studio 제목 Chapter Slam
+13 실시간 미리보기 Orbit
+14 Resolve
+```
 
-입력 URL이 하나이고 내부 링크 자동 분석이 켜져 있으면 설정한 페이지 한도까지만 같은 사이트의 핵심 링크를 따라갑니다.
+기존처럼 같은 페이지의 H1과 버튼을 모든 hash URL에서 반복하지 않습니다.
 
-### 2. Position Map
+## 핵심 기능
 
-Microlink browser function에서 `getBoundingClientRect()`를 읽어 각 요소의 실제 위치를 저장합니다.
+### AI Story capture
 
-페이지마다 다음을 표시합니다.
+기본 캡처 방식은 `AI 쇼릴 · URL별 뷰포인트`입니다. hash URL을 열면 해당 위치로 스크롤된 viewport를 캡처하고 DOM 분석 결과에 `scrollY`도 저장합니다.
 
-- 요소 역할
-- 실제 텍스트
-- 상단/중단/하단 + 좌/중앙/우 위치
-- X/Y 백분율
-- href 및 anchor 목적지
-- 체크 여부
-- 세로 페이지 미니맵의 위치 marker
+따라서 `#capture`의 화면을 분석할 때 문서 맨 위 H1을 다시 선택하지 않고 실제 #capture 화면 안에 보이는 요소를 기준으로 판단합니다.
 
-체크를 끄면 해당 요소는 Flow에서 빠집니다.
 
-### 3. Flow Director
+### Target Lock 클릭 규칙
 
-선택된 요소를 단순 나열하지 않습니다.
+자동 클릭은 **현재 요소의 href가 사용자가 넣은 다음 URL과 정확히 일치하고, 현재 캡처 화면에 실제로 보일 때만** 생성됩니다. 정확한 대상이 없으면 임의 CTA를 대신 클릭하지 않고 페이지 전환 비트만 만듭니다.
 
-- 첫 장면은 페이지 Establish
-- H1과 제품 화면을 우선 소개
-- 같은 페이지 anchor 링크는 `Click → 목적지 Y 좌표`로 연결
-- 목적지와 가까운 H2/H3가 있으면 해당 제목으로 정착
-- 먼 위치 이동은 `Whip Scroll`
-- 제품 화면은 `Arc Orbit`
-- 가까운 요소는 `Sweep / Track`
-- 다른 URL 링크는 `Page Impact`로 다음 페이지와 연결
-- 마지막은 CTA 또는 Resolve
+같은 문서의 `#capture`, `#templates`, `#studio`는 전체 페이지 좌표가 아니라 각각의 viewport 좌표로 잠급니다.
 
-Flow의 각 줄에서 동작과 모션을 다시 선택할 수 있습니다.
+### Chapter-first Director
 
-### 4. Scene editor
+Auto Director 상단에는 원본 DOM 수백 개를 바로 펼치지 않습니다. 먼저 챕터별 AI 추천 항목만 보여줍니다.
 
-Flow를 영상으로 적용하면 Scene과 camera keyframe이 자동 생성됩니다. Scene 편집기는 세부 조정용입니다.
+원본 후보는 `고급 · 분석 후보 보기`를 열었을 때만 표시됩니다.
 
-- 직선 / 곡선 / 자유 패스
-- 시작/끝 줌
-- 커서 위치와 click
-- Transition
+### Strong motion grammar
+
+기본 Impact Product Flow는 다음 모션을 사용합니다.
+
+- Reveal
+- Punch Zoom
+- Chapter Slam
+- Spotlight Push
+- Sweep / Arc Orbit
+- Cursor Impact
+- Page Impact
+- Resolve
+
+Page Impact는 이전 화면이 빠르게 뒤로 빠지고 다음 챕터가 크게 들어온 뒤 정착하도록 구성되어 있습니다.
+
+### Sound
+
+- Ambient Flow
+- Soft Corporate
+- Lo-fi Product
+- Minimal Keys
+- Glass Motion
+- Focus Drive
+- Launch Drive
+- 사용자 MP3/WAV/OGG
+- click accent
+- punch / chapter / spotlight whoosh
+- page transition whoosh
+
+오디오는 Web Audio track으로 만들어 Canvas video track과 함께 MediaRecorder에 전달됩니다.
+
+### Editor
+
+AI Storyboard를 Scene으로 변환한 뒤 필요한 장면만 세밀하게 수정합니다.
+
+- 직선 / 곡선 / 자유 path
+- 시작/끝 zoom
+- cursor
+- transition
 - 16:9 / 9:16 / 1:1
 - 720p / 1080p
 
-### 5. Sound
-
-- 내장 procedural BGM
-- 각 preset 미리듣기
-- 사용자 MP3/WAV/OGG 업로드
-- volume / fade
-- click / page transition accent
-- Web Audio track을 Canvas video와 함께 MediaRecorder에 mux
-
-### 6. Local project persistence
-
-- LocalStorage: project configuration
-- IndexedDB: uploaded/captured media
-- JSON project backup / restore
-- Custom motion template save / import
-
 ## URL capture
 
-공개 웹사이트 캡처는 Microlink API를 우선 사용합니다. DOM geometry를 받을 수 없거나 캡처 호출이 실패하면 mShots 이미지 캡처를 한 번 더 시도합니다.
+공개 웹사이트는 Microlink browser capture API를 우선 사용합니다. 브라우저 함수는 1024-byte 제한 안에서 다음을 수집합니다.
 
-로그인 세션이 필요한 SaaS/desktop app은 URL 원격 캡처 대신 `화면 녹화 클립` 또는 영상 업로드를 사용하세요.
+- viewport/document size
+- scrollX / scrollY
+- H1/H2/H3
+- navigation links
+- buttons / links
+- image / video / canvas / textarea
+- preview / browser-like product surfaces
+- element bounding rect
+- href / hash target coordinates
 
-## Tech stack
-
-- HTML5
-- CSS3
-- JavaScript ES modules
-- Canvas 2D
-- Web Audio API
-- MediaRecorder
-- LocalStorage
-- IndexedDB
-- GitHub Pages / GitHub Actions
-
-별도 npm dependency가 없습니다.
-
-## Project structure
-
-```text
-/
-├─ index.html
-├─ 404.html
-├─ assets/
-│  ├─ app.js
-│  ├─ director.js
-│  ├─ templates.js
-│  ├─ audio.js
-│  └─ styles.css
-├─ scripts/
-│  └─ verify.mjs
-├─ .github/workflows/deploy.yml
-├─ manifest.webmanifest
-├─ favicon.svg
-├─ og-image.png
-└─ README.md
-```
+Microlink 실패 시 mShots image fallback을 시도합니다. fallback은 DOM geometry가 없으므로 자동 연출 정확도는 낮아집니다.
 
 ## Local verification
 
-Node가 있으면 dependency 설치 없이 실행할 수 있습니다.
+Dependency 설치가 필요 없습니다.
 
 ```bash
 node scripts/verify.mjs
 ```
 
-간단한 정적 서버가 필요하면:
+검증에는 4개의 같은-document hash URL을 넣었을 때:
 
-```bash
-python3 -m http.server 8080
-```
+- 4 chapters 유지
+- 11~16 cinematic beats로 압축
+- 3개의 chapter navigation 연결
+- #capture / #templates / #studio에서 각각 실제 viewport title 선택
+- offscreen root H1 재선택 방지
+- impact camera / sound / WebM 경로
 
-## GitHub Pages deployment
+가 포함됩니다.
 
-1. 이 프로젝트 안의 파일 전체를 repository root에 업로드합니다.
+## GitHub Pages
+
+1. 프로젝트 파일 전체를 repository root에 업로드합니다.
 2. `main` branch에 push합니다.
-3. GitHub → Settings → Pages → Source를 **GitHub Actions**로 지정합니다.
-4. `Deploy MotionFrame Studio to GitHub Pages` workflow가 실행됩니다.
-
-Project repository라면 URL은 다음 형태입니다.
+3. GitHub → Settings → Pages → Source를 `GitHub Actions`로 지정합니다.
+4. 포함된 workflow가 검증 후 Pages artifact를 배포합니다.
 
 ```text
 https://USERNAME.github.io/REPOSITORY/
 ```
 
-Workflow가 `__SITE_URL__`을 실제 Pages URL로 치환해 canonical, OG, sitemap을 생성합니다.
-
 ## Important limitation
 
-GitHub Pages 브라우저만으로 다른 origin의 DOM을 직접 읽을 수는 없습니다. 따라서 공개 URL의 DOM geometry는 외부 browser capture API가 필요합니다. API key나 secret은 공개 프론트엔드에 하드코딩하지 않습니다.
-
-대량 상업 사용이나 로그인 session 기반 자동 브라우저 조작까지 필요하면 capture 부분만 Playwright/Chromium serverless worker로 분리하는 것이 다음 확장 단계입니다.
+GitHub Pages 자체는 다른 origin의 DOM을 직접 읽을 수 없습니다. 공개 URL DOM geometry를 얻으려면 browser capture API가 필요합니다. 로그인 session을 포함한 완전 자동 클릭/탐색까지 필요하면 capture 계층만 Playwright/Chromium serverless worker로 분리하는 것이 적합합니다.
 
 ## License
 
-MIT License. 외부 URL 캡처 서비스의 사용 조건과 요금은 해당 제공자의 정책을 따릅니다.
+MIT
