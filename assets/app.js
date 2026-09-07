@@ -1,7 +1,7 @@
-import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=11.0.0';
-import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=11.0.0';
-import { buildBeatSpecs, createDirectorPlan, moveFlowStep, planSummary, rebuildFlowFromSelection, removeFlowStep, suggestInternalLinks, toggleElementSelection, updateFlowStep } from './director.js?v=11.0.0';
-import { concepts, sourceTypes, featureDefinitions, getConcept, defaultConceptState, draftOptions, sourceRequirements } from './concepts.js?v=11.0.0';
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js?v=12.0.0';
+import { soundPresets, createProceduralBuffer, addSceneAccents, applyFade } from './audio.js?v=12.0.0';
+import { buildBeatSpecs, createDirectorPlan, isExactNavigationTarget, moveFlowStep, planSummary, rebuildFlowFromSelection, removeFlowStep, setElementBehavior, suggestInternalLinks, toggleElementSelection, updateFlowStep } from './director.js?v=12.0.0';
+import { concepts, conceptGroups, sourceTypes, featureDefinitions, getConcept, defaultConceptState, draftOptions, sourceRequirements } from './concepts.js?v=12.0.0';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -16,11 +16,10 @@ function windowProgress(progress, start, end, easing = 'cinematic') {
   if (easing === 'linear') return p;
   return easeInOut(p);
 }
-const STORAGE_KEY = 'motionframe:v11:project';
-const LEGACY_STORAGE_KEYS = ['motionframe:v10:project','motionframe:v9:project','motionframe:v7:project'];
-const TEMPLATE_KEY = 'motionframe:v11:templates';
-const LEGACY_TEMPLATE_KEYS = ['motionframe:v10:templates','motionframe:v9:templates','motionframe:v7:templates'];
-const DB_NAME = 'motionframe-studio-v5';
+const STORAGE_KEY = 'motionframe:v12:project';
+const TEMPLATE_KEY = 'motionframe:v12:templates';
+const EXPORT_REGISTRY_KEY = 'motionframe:v12:exports';
+const DB_NAME = 'motionframe-studio-v12';
 const DB_STORE = 'assets';
 const API_ENDPOINT = 'https://api.microlink.io/';
 const DOM_FUNCTION = `({page:p})=>p.evaluate(()=>{let d=document.documentElement,q='h1,h2,h3,button,a[href],img,video,canvas,textarea,[class*=preview],[class*=browser],[class*=logo]',a=[...document.querySelectorAll(q)];return{w:d.scrollWidth,h:d.scrollHeight,iw:innerWidth,ih:innerHeight,sx:scrollX,sy:scrollY,e:a.slice(0,120).map((e,i)=>{let r=e.getBoundingClientRect(),g=e.tagName.toLowerCase(),m=/^(img|video|canvas|textarea)$/.test(g)||/preview|browser/.test(e.className||''),k=e.hash&&document.getElementById(e.hash.slice(1)),z=k&&k.getBoundingClientRect(),t=(m?(e.alt||e.previousElementSibling?.innerText||'Product area'):(e.innerText||e.textContent||'')).trim().replace(/\s+/g,' ').slice(0,80);return !t||r.width<8||r.height<8?null:{i:'e'+i,g,r:m?'surface':'',t,u:e.href||'',x:r.x+r.width/2+scrollX,y:r.y+r.height/2+scrollY,o:r.y+scrollY,w:r.width,h:r.height,Y:z?z.y+z.height/2+scrollY:0,n:!!e.closest('nav'),b:/logo|brand/i.test((e.className||'')+' '+(e.id||''))||(g==='a'&&!!e.closest('header')&&!e.closest('nav'))}}).filter(Boolean)}})`;
@@ -55,6 +54,10 @@ let conceptDrafts = [];
 let conceptMediaBases = [];
 let pendingConceptFiles = { image: [], video: [] };
 let conceptRecording = null;
+let activeWorkflowStage = 'concept';
+let reviewPageIndex = 0;
+let conceptGroupFilter = 'all';
+const WORKFLOW_STAGES = ['concept','source','review','drafts','flow','studio'];
 
 const canvas = $('#previewCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -179,7 +182,7 @@ function baseScene(overrides = {}) {
 
 function demoProject() {
   return {
-    version: 11,
+    version: 12,
     concept: defaultConceptState(),
     aspect: '16:9',
     resolution: '1280x720',
@@ -187,11 +190,8 @@ function demoProject() {
     directorPlan: null,
     directorTemplateId: 'impact-flow',
     audio: { preset: 'softCorporate', volume: 42, fade: true, assetKey: null, name: '' },
-    scenes: [
-      baseScene({ name: '전체 화면', imageUrl: demoSvg('Automation overview', '#8da5ff', 0), duration: 2.2, sourceType: 'demo', motionPreset: 'overview' }),
-      baseScene({ name: '기능 포커스', imageUrl: demoSvg('Workflow builder', '#91d2b3', 1), duration: 2.4, sourceType: 'demo', motionPreset: 'focus', endX: 67, endY: 46, cursorX: 69, cursorY: 48 }),
-      baseScene({ name: '결과 확인', imageUrl: demoSvg('Report analytics', '#efc87a', 2), duration: 2.2, sourceType: 'demo', motionPreset: 'pullout', transition: 'zoom-out' })
-    ]
+    scenes: [],
+    ui: { stage: 'concept' }
   };
 }
 
@@ -199,7 +199,7 @@ function sanitizeProject(project) {
   const fallback = demoProject();
   if (!project || !Array.isArray(project.scenes)) return fallback;
   return {
-    version: 11,
+    version: 12,
     concept: { ...defaultConceptState(), ...(project.concept || {}), features: Array.isArray(project.concept?.features) ? project.concept.features : defaultConceptState().features },
     aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
     resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
@@ -213,16 +213,38 @@ function sanitizeProject(project) {
       assetKey: project.audio?.assetKey || null,
       name: project.audio?.name || ''
     },
-    scenes: project.scenes.map((scene) => baseScene({ ...scene, id: scene.id || createId('scene') }))
+    scenes: project.scenes.map((scene) => baseScene({ ...scene, id: scene.id || createId('scene') })),
+    ui: { stage: WORKFLOW_STAGES.includes(project.ui?.stage) ? project.ui.stage : 'concept' }
   };
+}
+
+async function cleanupLegacyPersistence() {
+  try {
+    if (!localStorage.getItem(TEMPLATE_KEY)) {
+      const legacyTemplates = localStorage.getItem('motionframe:v11:templates');
+      if (legacyTemplates) localStorage.setItem(TEMPLATE_KEY, legacyTemplates);
+    }
+    [...Array(localStorage.length)].forEach((_,index)=>{});
+    const keys=[]; for(let i=0;i<localStorage.length;i+=1) keys.push(localStorage.key(i));
+    keys.filter(Boolean).forEach((key)=>{
+      if (/^motionframe:v(?:[1-9]|10|11):(project|exports)$/.test(key)) localStorage.removeItem(key);
+      if (/^motionframe:v(?:[1-9]|10|11):templates$/.test(key)) localStorage.removeItem(key);
+    });
+    if ('indexedDB' in window) {
+      for (const name of ['motionframe-studio-v5','motionframe-studio-v6','motionframe-studio-v7','motionframe-studio-v8','motionframe-studio-v9','motionframe-studio-v10','motionframe-studio-v11']) {
+        try { indexedDB.deleteDatabase(name); } catch {}
+      }
+    }
+  } catch (error) { console.warn('legacy cleanup skipped', error); }
 }
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY) || LEGACY_STORAGE_KEYS.map((key)=>localStorage.getItem(key)).find(Boolean);
-    const project = sanitizeProject(raw ? JSON.parse(raw) : null);
-    if (!project.scenes.length) return demoProject();
-    return project;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return demoProject();
+    const parsed = JSON.parse(raw);
+    if (Number(parsed?.version) !== 12) return demoProject();
+    return sanitizeProject(parsed);
   } catch {
     return demoProject();
   }
@@ -237,7 +259,7 @@ function saveState() {
 
 function loadCustomTemplates() {
   try {
-    const raw = localStorage.getItem(TEMPLATE_KEY) || LEGACY_TEMPLATE_KEYS.map((key)=>localStorage.getItem(key)).find(Boolean) || '[]';
+    const raw = localStorage.getItem(TEMPLATE_KEY) || '[]';
     const data = JSON.parse(raw);
     return Array.isArray(data) ? data : [];
   } catch { return []; }
@@ -404,10 +426,44 @@ function renderConceptSummary() {
   $('#conceptReadyText').textContent = '자동 기능은 기본값으로 켜져 있습니다. 필요 없는 항목만 끄고 초안을 생성하세요.';
 }
 
+function stageIndex(stage=activeWorkflowStage){ return Math.max(0, WORKFLOW_STAGES.indexOf(stage)); }
+function workflowStageLabel(stage){ return ({concept:'컨셉',source:'소스',review:'분석 검수',drafts:'추천 초안',flow:'Flow',studio:'편집·출력'})[stage] || stage; }
+function showWorkflowStage(stage,{save=true}={}) {
+  if (!WORKFLOW_STAGES.includes(stage)) stage='concept';
+  activeWorkflowStage=stage;
+  if (state) { state.ui={...(state.ui||{}),stage}; if(save) saveState(); }
+  const setup=$('#concept');
+  if(setup){ const on=stage==='concept'||stage==='source'; setup.hidden=!on; setup.dataset.stageMode=stage; }
+  ['review','drafts','flow','studio'].forEach((name)=>{ const panel=$(`[data-stage-panel="${name}"]`); if(panel) panel.hidden=stage!==name; });
+  const template=$('#templates'); if(template && stage!=='flow'){ template.hidden=true; template.dataset.libraryOpen='false'; }
+  $$('[data-workflow-stage]').forEach((button)=>{ const i=stageIndex(button.dataset.workflowStage),cur=stageIndex(stage); button.classList.toggle('active',button.dataset.workflowStage===stage); button.classList.toggle('done',i<cur); button.setAttribute('aria-current',button.dataset.workflowStage===stage?'step':'false'); });
+  const back=$('#stageBackButton'),next=$('#stageNextButton'); if(back) back.disabled=stageIndex(stage)===0; if(next){ next.textContent=stage==='studio'?'완료':stage==='source'?'분석 시작':stage==='review'?'추천 초안으로':stage==='drafts'?'Flow 확인':stage==='flow'?'편집기로':'다음'; }
+  const title=$('#workflowProjectTitle'); if(title) title.textContent=`${currentConcept().title} · ${workflowStageLabel(stage)}`;
+  const conceptTitle=$('#concept-title'),conceptSub=$('#concept .section-subcopy'); if(conceptTitle&&conceptSub){ if(stage==='source'){conceptTitle.textContent='소스와 자동 기능을 정합니다.';conceptSub.textContent='선택한 컨셉에 필요한 자료만 넣고, 기본 자동 기능에서 필요 없는 항목만 끄면 됩니다.';}else{conceptTitle.textContent='먼저 만들 영상의 컨셉을 고릅니다.';conceptSub.textContent='컨셉이 분석 기준, 필요한 입력, 추천 템플릿, 카메라 강도와 사운드 기본값을 결정합니다.';} }
+  window.scrollTo({top:0,behavior:'auto'});
+  if(stage==='review') renderAnalysisReview();
+  if(stage==='drafts') renderDrafts();
+  if(stage==='flow') renderDirectorPlan();
+  if(stage==='studio') renderAll();
+}
+async function goWorkflowNext(){
+  const i=stageIndex();
+  if(activeWorkflowStage==='source') { await analyzeConceptSource(); return; }
+  if(activeWorkflowStage==='review') { if(!directorPlan?.pages?.length){toast('검수할 분석 결과가 없습니다.','error');return;} createConceptDrafts(); showWorkflowStage('drafts'); return; }
+  if(activeWorkflowStage==='drafts') { if(!state.concept.selectedDraft){toast('추천 초안 중 하나를 먼저 선택해 주세요.','error');return;} showWorkflowStage('flow'); return; }
+  if(activeWorkflowStage==='flow') { if(!directorPlan?.pages?.length){toast('적용할 Flow가 없습니다.','error');return;} await applyDirectorPlan(); return; }
+  if(i<WORKFLOW_STAGES.length-1) showWorkflowStage(WORKFLOW_STAGES[i+1]);
+}
+function goWorkflowBack(){ const i=stageIndex(); if(i>0) showWorkflowStage(WORKFLOW_STAGES[i-1]); }
+function renderConceptFilters(){
+  const root=$('#conceptFilters'); if(!root)return; root.innerHTML='';
+  conceptGroups.forEach((group)=>{ const b=document.createElement('button'); b.type='button'; b.className=`concept-filter ${conceptGroupFilter===group.id?'active':''}`; b.textContent=group.label; b.addEventListener('click',()=>{conceptGroupFilter=group.id;renderConceptFilters();renderConceptGrid();}); root.append(b); });
+}
+
 function renderConceptGrid() {
   const root = $('#conceptGrid'); if (!root) return;
   root.innerHTML = '';
-  concepts.forEach((c) => {
+  concepts.filter((c)=>conceptGroupFilter==='all'||c.group===conceptGroupFilter).forEach((c) => {
     const button = document.createElement('button');
     button.type='button'; button.className=`concept-card ${ensureConceptState().id===c.id?'active':''}`;
     button.innerHTML=`<div class="concept-card-top"><span>${escapeHtml(c.badge)}</span><small>${escapeHtml(c.duration)}</small></div><strong>${escapeHtml(c.title)}</strong><p>${escapeHtml(c.description)}</p><small>${escapeHtml(c.tone)}</small>`;
@@ -447,7 +503,7 @@ function renderConceptFileLists() {
 }
 
 function renderConceptUI() {
-  ensureConceptState(); renderConceptGrid(); renderSourceTabs(); renderAutoFeatures(); renderConceptSummary(); renderConceptFileLists();
+  ensureConceptState(); renderConceptFilters(); renderConceptGrid(); renderSourceTabs(); renderAutoFeatures(); renderConceptSummary(); renderConceptFileLists();
   const urlInput=$('#conceptUrlInput'); if(urlInput && urlInput.value!==(state.concept.urls||'')) urlInput.value=state.concept.urls||'';
 }
 
@@ -491,7 +547,7 @@ function renderDrafts() {
 }
 
 function createConceptDrafts() {
-  conceptDrafts=draftOptions(state.concept.id); state.concept.selectedDraft=null; saveState(); renderDrafts(); location.hash='drafts';
+  conceptDrafts=draftOptions(state.concept.id); state.concept.selectedDraft=null; saveState(); renderDrafts();
 }
 
 async function applyConceptDraft(draftId) {
@@ -499,17 +555,17 @@ async function applyConceptDraft(draftId) {
   state.concept.selectedDraft=draft.id; directorTemplateId=draft.templateId; state.directorTemplateId=draft.templateId; state.audio.preset=normalizeAudioPreset(draft.audio); state.aspect=draft.aspect||state.aspect;
   const profile=currentConceptProfile(); const scope=conceptScope();
   directorPlan=createDirectorPlan(directorBases,{scope:{...scope,pageLimit:Math.max(scope.pageLimit,directorBases.length)},profile,detail:`concept:${state.concept.id}`}); state.directorPlan=directorPlan;
-  const scenes=buildDirectorScenes();
-  if(!scenes.length){toast('초안을 만들 소스가 없습니다.','error');return;}
-  const oldKeys=state.scenes.filter((scene)=>scene.sourceType==='demo'||scene.directorRole).map((scene)=>scene.assetKey).filter(Boolean);
-  state.scenes=scenes; selectedSceneId=scenes[0].id; currentTime=0; saveState(); renderDirectorPlan(); await renderAll(); renderDrafts();
-  oldKeys.filter((key)=>!directorBases.some((base)=>base.assetKey===key)).forEach((key)=>deleteAsset(key).catch(()=>{}));
-  setCaptureStatus('추천 초안 적용 완료',`${currentConcept().title} · ${currentTemplates().find((item)=>item.id===draft.templateId)?.title||draft.templateId} · ${scenes.length}개 장면`,'success');
-  toast('초안을 적용했습니다. Flow에서 빼거나 순서만 조정한 뒤 세부 편집으로 내려가세요.'); location.hash='director';
+  // A draft is a plan, not yet a rendered scene stack. This keeps Flow editable before scenes are generated.
+  const directorAssetKeys=new Set(directorBases.map((base)=>base.assetKey).filter(Boolean));
+  const keep=state.scenes.filter((scene)=>!scene.directorRole && !scene.sourcePageIndex && !scene.sourceAnalysis);
+  state.scenes=keep; selectedSceneId=keep[0]?.id||null; currentTime=0; saveState(); renderDirectorPlan(); renderDrafts(); await renderAll();
+  setCaptureStatus('추천 초안 선택 완료',`${currentConcept().title} · ${currentTemplates().find((item)=>item.id===draft.templateId)?.title||draft.templateId} · Flow를 확인한 뒤 편집기로 적용하세요.`,'success');
+  toast('초안의 Flow가 준비되었습니다. 위치와 클릭 대상을 검수한 뒤 편집기로 적용하세요.'); showWorkflowStage('flow');
+  void directorAssetKeys;
 }
 
-async function generateConceptDrafts() {
-  const c=currentConcept(); syncConceptToAdvancedControls(); const type=state.concept.sourceType; conceptDrafts=[]; renderDrafts();
+async function analyzeConceptSource() {
+  const c=currentConcept(); syncConceptToAdvancedControls(); const type=state.concept.sourceType; conceptDrafts=[]; state.concept.selectedDraft=null; renderDrafts();
   try{
     $('#generateDraftsButton').disabled=true; $('#generateDraftsButton').textContent='분석 중…';
     if(type==='url'){
@@ -518,10 +574,11 @@ async function generateConceptDrafts() {
     }else{
       const files=pendingConceptFiles[type]; await prepareConceptMediaBases(files,type);
     }
-    createConceptDrafts();
-    setCaptureStatus('추천 초안 준비 완료',`${c.title}에 맞는 3개 초안을 만들었습니다. 아직 편집 장면은 생성하지 않았습니다.`,'success');
-  }catch(error){console.error(error);toast(error.message,'error');setCaptureStatus('초안 생성 실패',error.message,'error');}
-  finally{$('#generateDraftsButton').disabled=false;$('#generateDraftsButton').textContent='분석하고 추천 초안 만들기';}
+    renderAnalysisReview();
+    setCaptureStatus('분석 완료 · 검수 필요',`${c.title} 기준으로 핵심 요소를 정리했습니다. 클릭 위치와 대상을 확인해 주세요.`,'success');
+    showWorkflowStage('review');
+  }catch(error){console.error(error);toast(error.message,'error');setCaptureStatus('분석 실패',error.message,'error');}
+  finally{$('#generateDraftsButton').disabled=false;$('#generateDraftsButton').textContent='분석하고 위치 검수하기';}
 }
 
 function semanticCues(analysis) {
@@ -1262,7 +1319,7 @@ function applyTemplate(template) {
     saveState();
     renderAll();
     toast(`“${template.title}” 모션 스타일을 현재 Auto Director 흐름에 적용했습니다.`);
-    location.hash = 'studio';
+    showWorkflowStage('studio');
     return;
   }
   if (!state.scenes.length) {
@@ -1278,7 +1335,8 @@ function applyTemplate(template) {
     next.push(hydrateMotion(source,spec.motion || 'overview',{ ...spec, id:source.id, name: originals.length===1 ? `${originals[0].name} · ${i+1}` : source.name }));
   }
   state.scenes=next; state.aspect=template.aspect||state.aspect; state.frameStyle=template.frameStyle||state.frameStyle; if(template.audioPreset)state.audio.preset=normalizeAudioPreset(template.audioPreset);
-  selectedSceneId=state.scenes[0]?.id||null; currentTime=0; saveState(); renderAll(); toast(`“${template.title}” 템플릿을 적용했습니다.`); location.hash='studio';
+  selectedSceneId=state.scenes[0]?.id||null;
+  activeWorkflowStage=WORKFLOW_STAGES.includes(state.ui?.stage)?state.ui.stage:'concept'; currentTime=0; saveState(); renderAll(); toast(`“${template.title}” 템플릿을 적용했습니다.`); showWorkflowStage('studio');
 }
 
 
@@ -1356,11 +1414,45 @@ function renderAnalysisBoard() {
   });
 }
 
+async function renderAnalysisReview() {
+  const pages=directorPlan?.pages||[];
+  const tabs=$('#reviewPageTabs'),list=$('#reviewTargetList'),overlay=$('#reviewOverlay'),preview=$('#reviewPreviewImage');
+  if(!tabs||!list||!overlay||!preview)return;
+  tabs.innerHTML=''; list.innerHTML=''; overlay.innerHTML='';
+  const summary=$('#reviewSummary');
+  if(!pages.length){ if(summary)summary.textContent='분석 전'; $('#reviewEmpty').hidden=false; $('#reviewPageTitle').textContent='분석 결과 없음'; $('#reviewPageUrl').textContent=''; $('#reviewTargetLockCount').textContent='0 target locks'; return; }
+  reviewPageIndex=clamp(reviewPageIndex,0,pages.length-1);
+  if(summary){ const selected=pages.reduce((n,p)=>n+p.elements.filter(e=>e.selected).length,0); const locks=pages.reduce((n,p)=>n+p.elements.filter(e=>e.selected&&e.behavior==='navigate'&&Number.isInteger(Number(e.targetPageIndex))&&isExactNavigationTarget(directorPlan,p.pageIndex,e.id,e.targetPageIndex)).length,0); summary.textContent=`${pages.length} pages · ${selected} targets · ${locks} locked clicks`; }
+  pages.forEach((page,index)=>{ const b=document.createElement('button');b.type='button';b.className=`review-page-tab ${index===reviewPageIndex?'active':''}`;b.innerHTML=`<strong>${String(index+1).padStart(2,'0')} · ${escapeHtml(page.chapterLabel||page.title)}</strong><span>${escapeHtml(page.url)}</span>`;b.addEventListener('click',()=>{reviewPageIndex=index;renderAnalysisReview();});tabs.append(b); });
+  const page=pages[reviewPageIndex],base=directorBases[reviewPageIndex];
+  $('#reviewPageTitle').textContent=page.chapterLabel||page.title; $('#reviewPageUrl').textContent=page.url||''; $('#reviewEmpty').hidden=true;
+  let imageUrl=base?.imageUrl||''; if(base?.assetKey) imageUrl=await getAssetUrl(base.assetKey).catch(()=>imageUrl); preview.style.backgroundImage=imageUrl?`url("${String(imageUrl).replace(/"/g,'%22')}")`:'none';
+  const candidates=[...page.elements].sort((a,b)=>Number(b.selected)-Number(a.selected)||Number(b.visible)-Number(a.visible)||a.y-b.y).slice(0,14);
+  let lockedCount=0;
+  candidates.forEach((element)=>{
+    const locked=element.behavior==='navigate'&&Number.isInteger(Number(element.targetPageIndex))&&isExactNavigationTarget(directorPlan,reviewPageIndex,element.id,element.targetPageIndex);
+    if(locked&&element.selected)lockedCount+=1;
+    const box=document.createElement('div'); box.className=`review-box ${locked?'locked':element.selected?'':'ignored'}`;
+    const width=clamp(Number(element.widthPct||6),2,60),height=clamp(Number(element.heightPct||4),2,40); box.style.left=`${clamp(element.x-width/2,0,98)}%`;box.style.top=`${clamp(element.y-height/2,0,98)}%`;box.style.width=`${width}%`;box.style.height=`${height}%`; box.innerHTML=`<span>${escapeHtml(element.text)}</span>`; overlay.append(box);
+    const row=document.createElement('label');row.className='review-target-row';
+    const exactOptions=locked||page.elements.some(()=>false); // explicit readability; lock is calculated against the selected target
+    const targetText=locked?`→ ${directorPlan.pages[Number(element.targetPageIndex)]?.chapterLabel||'next'}`:(element.href?'링크 확인 · 자동 클릭 안 함':'포커스');
+    row.innerHTML=`<input type="checkbox" ${element.selected?'checked':''}><span class="review-target-copy"><strong>${escapeHtml(element.text)}</strong><small>${escapeHtml(directorRoleLabel(element.role))} · X ${Math.round(element.x)}% · Y ${Math.round(element.y)}%${element.href?` · ${escapeHtml(element.href.replace(/^https?:\/\/[^/]+/,''))}`:''}</small><span class="review-target-meta"><span>${locked?'TARGET LOCK ✓':targetText}</span><select aria-label="행동"><option value="focus" ${element.behavior!=='navigate'?'selected':''}>보여주기</option>${locked?`<option value="navigate" selected>클릭 → 다음 화면</option>`:''}<option value="skip">제외</option></select></span></span>`;
+    const check=row.querySelector('input'),select=row.querySelector('select');
+    check.addEventListener('change',()=>{ if(!check.checked){setElementBehavior(directorPlan,reviewPageIndex,element.id,'skip');} else if(locked){setElementBehavior(directorPlan,reviewPageIndex,element.id,'navigate',element.targetPageIndex);} else {setElementBehavior(directorPlan,reviewPageIndex,element.id,'focus');} state.directorPlan=directorPlan;saveState();renderAnalysisReview();renderDirectorPlan(); });
+    select.addEventListener('change',()=>{ const behavior=select.value;if(behavior==='navigate'&&locked)setElementBehavior(directorPlan,reviewPageIndex,element.id,'navigate',element.targetPageIndex);else setElementBehavior(directorPlan,reviewPageIndex,element.id,behavior);state.directorPlan=directorPlan;saveState();renderAnalysisReview();renderDirectorPlan(); });
+    list.append(row); void exactOptions;
+  });
+  $('#reviewTargetLockCount').textContent=`${lockedCount} target lock${lockedCount===1?'':'s'}`;
+  const selectedCount=page.elements.filter(e=>e.selected).length; $('#reviewReadyTitle').textContent=`${page.chapterLabel||page.title} · 핵심 ${selectedCount}개 확인`;
+  $('#reviewReadyText').textContent='초록색 TARGET LOCK만 자동 클릭합니다. 파란 박스는 보여주기만 하고 회색은 제외됩니다.';
+}
+
 function renderDirectorPlan() {
   const section = $('#director');
   const root = $('#directorFlow');
   if (!section || !root) return;
-  section.hidden = false;
+  if (activeWorkflowStage === 'flow') section.hidden = false;
   renderAnalysisBoard();
 
   if (!directorPlan?.pages?.length) {
@@ -1383,8 +1475,9 @@ function renderDirectorPlan() {
     const element = step.elementId ? page?.elements?.find((item) => item.id === step.elementId) : null;
     const row = document.createElement('article');
     row.className = `flow-step-row action-${step.action} ${step.enabled === false ? 'disabled' : ''}`;
-    const pageOptions = directorPlan.pages.map((target, targetIndex) => `<option value="${targetIndex}" ${Number(step.targetPageIndex)===targetIndex?'selected':''}>${targetIndex + 1}. ${escapeHtml(target.title)}</option>`).join('');
-    const canNavigate = Boolean(element?.href);
+    const pageOptions = directorPlan.pages.map((target, targetIndex) => ({target,targetIndex})).filter(({targetIndex})=>!element||isExactNavigationTarget(directorPlan,step.pageIndex,element.id,targetIndex)).map(({target,targetIndex}) => `<option value="${targetIndex}" ${Number(step.targetPageIndex)===targetIndex?'selected':''}>${targetIndex + 1}. ${escapeHtml(target.title)}</option>`).join('');
+    const exactTargetIndexes = element?.href ? directorPlan.pages.map((_,targetIndex)=>targetIndex).filter((targetIndex)=>targetIndex!==step.pageIndex&&isExactNavigationTarget(directorPlan,step.pageIndex,element.id,targetIndex)) : [];
+    const canNavigate = exactTargetIndexes.length > 0;
     const canAnchor = Number.isFinite(Number(element?.targetY)) && Number(element?.targetY) > 0;
     row.innerHTML = `
       <span class="flow-index">${String(index + 1).padStart(2,'0')}</span>
@@ -1418,7 +1511,11 @@ function renderDirectorPlan() {
     action?.addEventListener('change', () => {
       const nextAction = action.value;
       let targetPageIndex = step.targetPageIndex;
-      if (nextAction === 'navigate' && !Number.isInteger(Number(targetPageIndex))) targetPageIndex = Math.min(step.pageIndex + 1, directorPlan.pages.length - 1);
+      if (nextAction === 'navigate') {
+        const exact = directorPlan.pages.map((_,idx)=>idx).find((idx)=>idx!==step.pageIndex&&element&&isExactNavigationTarget(directorPlan,step.pageIndex,element.id,idx));
+        if (!Number.isInteger(exact)) { toast('이 요소는 입력한 다음 화면과 정확히 연결되지 않아 자동 클릭할 수 없습니다.','error'); action.value='focus'; updateFlowStep(directorPlan,step.id,{action:'focus',targetPageIndex:null,impact:'punch'}); state.directorPlan=directorPlan;saveState();renderDirectorPlan();return; }
+        targetPageIndex=exact;
+      }
       const defaultImpact = nextAction === 'navigate' ? 'navigate' : (nextAction === 'click' || nextAction === 'anchor') ? 'click' : nextAction === 'track' ? 'track' : step.impact;
       updateFlowStep(directorPlan, step.id, { action: nextAction, targetPageIndex: nextAction === 'navigate' ? targetPageIndex : null, impact: defaultImpact });
       state.directorPlan = directorPlan; saveState(); renderDirectorPlan();
@@ -1441,8 +1538,7 @@ function rebuildDirectorPlan() {
   directorPlan = createDirectorPlan(directorBases, { scope: directorPlan?.scope || conceptScope(), profile: directorPlan?.profile || currentConceptProfile(), detail:'concept-rebuild' });
   state.directorPlan = directorPlan; state.directorTemplateId = directorTemplateId; saveState();
   renderDirectorPlan();
-  $('#director').hidden = false;
-  location.hash = 'director';
+  showWorkflowStage('flow');
 }
 
 function rebuildDirectorFromSelection() {
@@ -1547,7 +1643,7 @@ function buildDirectorScenes() {
       start=samePage?start:{...target,zoom:118}; target.zoom=100;target.anchorX=.5;target.anchorY=.5;
     }
 
-    const clickable = beat.behavior === 'click' || beat.behavior === 'navigate';
+    const clickable = beat.behavior === 'click' || (beat.behavior === 'navigate' && beat.targetLocked === true);
     const cursorStart={x:clamp(target.x+(target.x<50?14:-14),2,98),y:clamp(target.y+(target.y<55?8:-8),2,98)};
     const cameraKeyframes=cameraFramesForImpact(impact,start,target);
     const distance=Math.hypot(target.x-start.x,target.y-start.y);
@@ -1556,7 +1652,7 @@ function buildDirectorScenes() {
     const requestedDuration=Number(beat.duration || 0);
     const duration=clamp((requestedDuration || timing.duration)*speed,1.05,3.5);
     const roleMotion=beat.intent==='establish'||beat.intent==='resolve'?'overview':clickable?'cursorChase':impact==='track'?'scrollDown':impact==='sweep'?'diagonal':'snapDetail';
-    const label=beat.behavior==='navigate'?`클릭 · ${beat.label}`:beat.label;
+    const label=beat.behavior==='navigate'&&beat.targetLocked?`클릭 · ${beat.label}`:beat.label;
 
     scenes.push(hydrateMotion(scene,roleMotion,{
       id:scene.id,name:label,duration,
@@ -1591,7 +1687,7 @@ async function applyDirectorPlan() {
   const summary = planSummary(directorPlan);
   setCaptureStatus('Auto Director 적용 완료', `${summary.pages}개 챕터 · ${summary.beats}개 시네마틱 비트 · 연결 클릭 ${summary.navigations}개`, 'success');
   toast('페이지 구조와 링크 흐름을 편집기에 적용했습니다.');
-  location.hash = 'studio';
+  showWorkflowStage('studio');
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
@@ -1780,7 +1876,7 @@ async function captureUrl(asStory, options = {}) {
         saveState(); await renderAll();
         setCaptureStatus('기본 연출안 생성 완료', `${summary.pages}개 챕터 · ${summary.beats} cinematic beats · DOM 좌표 ${geometryCount}/${bases.length} · 연결 클릭 ${summary.navigations}개${note}`, failures.length ? 'warning' : 'success');
         toast('Target Lock 완료: 다음 URL과 정확히 연결되는 요소만 클릭합니다.');
-        location.hash = 'director';
+        showWorkflowStage('flow');
       }
     } else {
       if (isDemo) state.scenes = [];
@@ -1791,7 +1887,7 @@ async function captureUrl(asStory, options = {}) {
       await renderAll();
       renderDomAnalysis(bases);
       setCaptureStatus('URL 캡처 완료', `${lastCaptureProvider}로 화면과 페이지 구조를 가져왔습니다.`, 'success');
-      location.hash = 'studio';
+      showWorkflowStage('studio');
     }
     if (failures.length) toast(`${bases.length}개 성공, ${failures.length}개 실패했습니다. 성공한 페이지로 계속 구성했습니다.`);
   } catch (error) {
@@ -1816,7 +1912,7 @@ async function handleMediaFiles(files) {
     else scene=await makeImageSceneFromBlob(file,{name:file.name.replace(/\.[^.]+$/,''),sourceType:'upload'});
     state.scenes.push(scene); selectedSceneId=scene.id;
   }
-  saveState(); await renderAll(); toast(`${list.length}개 미디어를 추가했습니다.`); location.hash='studio';
+  saveState(); await renderAll(); toast(`${list.length}개 미디어를 추가했습니다.`); showWorkflowStage('studio');
 }
 
 
@@ -1846,7 +1942,7 @@ async function captureScreen() {
     const shot=document.createElement('canvas'); shot.width=video.videoWidth; shot.height=video.videoHeight; shot.getContext('2d').drawImage(video,0,0);
     const blob=await new Promise(resolve=>shot.toBlob(resolve,'image/png',.94));
     const scene=await makeImageSceneFromBlob(blob,{name:`화면 캡처 ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`,sourceType:'capture'});
-    if(state.scenes.length&&state.scenes.every(s=>s.sourceType==='demo'))state.scenes=[]; state.scenes.push(scene); selectedSceneId=scene.id; saveState(); await renderAll(); toast('현재 화면을 장면으로 추가했습니다.'); location.hash='studio';
+    if(state.scenes.length&&state.scenes.every(s=>s.sourceType==='demo'))state.scenes=[]; state.scenes.push(scene); selectedSceneId=scene.id; saveState(); await renderAll(); toast('현재 화면을 장면으로 추가했습니다.'); showWorkflowStage('studio');
   }catch(err){ if(err?.name!=='NotAllowedError')toast(`화면 캡처 실패: ${err.message}`,'error'); }
   finally{stream?.getTracks().forEach(t=>t.stop());}
 }
@@ -1866,7 +1962,7 @@ async function recordScreenClip() {
       clearTimeout(screenRecording?.timer); button.textContent='화면 녹화 클립'; button.disabled=false;
       const blob=new Blob(chunks,{type:mime||'video/webm'}); screenRecording=null;
       if(!blob.size){toast('녹화된 데이터가 없습니다.','error');return;}
-      try{const scene=await makeVideoSceneFromBlob(blob,{name:`화면 녹화 ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`});if(state.scenes.length&&state.scenes.every(s=>s.sourceType==='demo'))state.scenes=[];state.scenes.push(scene);selectedSceneId=scene.id;saveState();await renderAll();toast('화면 녹화 클립을 장면으로 추가했습니다.');location.hash='studio';}catch(err){toast(`녹화 클립 처리 실패: ${err.message}`,'error');}
+      try{const scene=await makeVideoSceneFromBlob(blob,{name:`화면 녹화 ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`});if(state.scenes.length&&state.scenes.every(s=>s.sourceType==='demo'))state.scenes=[];state.scenes.push(scene);selectedSceneId=scene.id;saveState();await renderAll();toast('화면 녹화 클립을 장면으로 추가했습니다.');showWorkflowStage('studio');}catch(err){toast(`녹화 클립 처리 실패: ${err.message}`,'error');}
     };
     stream.getVideoTracks()[0]?.addEventListener('ended',()=>{if(recorder.state!=='inactive')recorder.stop();},{once:true});
     recorder.start(250); screenRecording={stream,recorder,timer:setTimeout(()=>{if(recorder.state!=='inactive'){recorder.stop();stream.getTracks().forEach(t=>t.stop());}},30000)}; button.textContent='녹화 종료'; toast('화면 녹화를 시작했습니다. 최대 30초 후 자동 종료됩니다.');
@@ -2014,8 +2110,10 @@ async function exportWebM(){
     const blob=new Blob(chunks,{type:mimeType||'video/webm'});
     const link=document.createElement('a');
     const url=URL.createObjectURL(blob);
+    const filename=`motionframe-${new Date().toISOString().slice(0,10)}.webm`;
     link.href=url;
-    link.download=`motionframe-${new Date().toISOString().slice(0,10)}.webm`;
+    link.download=filename;
+    rememberWebMExport(filename,blob);
     document.body.append(link); link.click(); link.remove();
     setTimeout(()=>URL.revokeObjectURL(url),10000);
     $('#exportStatus').textContent=`완료 · ${(blob.size/1024/1024).toFixed(1)} MB`;
@@ -2036,22 +2134,73 @@ function downloadJson(data,name){const blob=new Blob([JSON.stringify(data,null,2
 function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(blob);});}
 function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const type=(meta.match(/data:([^;]+)/)||[])[1]||'application/octet-stream';const binary=atob(data);const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return new Blob([bytes],{type});}
 
-async function exportProject(){
-  const keys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; const assets={};
+async function buildProjectBundle(){
+  const keys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey,...directorBases.map(s=>s.assetKey).filter(Boolean)].filter(Boolean))]; const assets={};
   for(const key of keys){const blob=await getAsset(key);if(blob)assets[key]={type:blob.type,data:await blobToDataUrl(blob)};}
-  downloadJson({kind:'motionframe-project',version:8,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
+  return {kind:'motionframe-project',version:12,createdAt:new Date().toISOString(),project:{...state,version:12},bases:directorBases.map((scene)=>({...scene})),assets,customTemplates:loadCustomTemplates()};
+}
+async function restoreProjectBundle(data){
+  if(data?.kind!=='motionframe-project'||!data.project)throw new Error('MotionFrame 프로젝트 정보가 없습니다.');
+  await clearAllAssets();
+  for(const [key,item] of Object.entries(data.assets||{})){if(item?.data)await putAsset(key,dataUrlToBlob(item.data));}
+  state=sanitizeProject({...data.project,version:12}); if(Array.isArray(data.customTemplates))storeCustomTemplates(data.customTemplates);
+  directorPlan=state.directorPlan?.pages?state.directorPlan:null;directorTemplateId=state.directorTemplateId||'impact-flow';directorBases=Array.isArray(data.bases)?data.bases.map((scene)=>baseScene({...scene,id:scene.id||createId('base')})):[];
+  if(!directorBases.length&&directorPlan?.pages?.length){const byPage=new Map();state.scenes.filter(scene=>Number.isInteger(scene.sourcePageIndex)).forEach(scene=>{if(!byPage.has(scene.sourcePageIndex))byPage.set(scene.sourcePageIndex,structuredClone(scene));});directorBases=[...byPage.entries()].sort((a,b)=>a[0]-b[0]).map(([,scene])=>scene);}
+  selectedSceneId=state.scenes[0]?.id||null;currentTime=0;saveState();setupSelectOptions();renderConceptUI();renderTemplates();renderTemplateFilters();renderDirectorPlan();renderAnalysisReview();await renderAll();
+}
+function encodeProjectMetadata(bundle){const json=JSON.stringify(bundle);return btoa(unescape(encodeURIComponent(json)));}
+function decodeProjectMetadata(text){return JSON.parse(decodeURIComponent(escape(atob(String(text||'').trim()))));}
+function exportRegistry(){try{const v=JSON.parse(localStorage.getItem(EXPORT_REGISTRY_KEY)||'[]');return Array.isArray(v)?v:[]}catch{return[]}}
+function rememberWebMExport(filename,blob){try{const list=exportRegistry().filter(item=>item.signature!==`${filename}:${blob.size}`);list.unshift({signature:`${filename}:${blob.size}`,createdAt:new Date().toISOString(),project:{...state,version:12}});localStorage.setItem(EXPORT_REGISTRY_KEY,JSON.stringify(list.slice(0,6)));}catch{}}
+async function exportSvg(){
+  if(!state.scenes.length){toast('SVG로 저장할 장면이 없습니다.','error');return;}
+  const previousTime=currentTime,previousSelected=selectedSceneId; const frames=[]; let acc=0;
+  try{
+    $('#exportStatus').textContent='SVG 프레임 준비 중…';
+    for(let i=0;i<state.scenes.length;i+=1){const scene=state.scenes[i],d=Number(scene.duration||1);currentTime=acc+d*.58;selectedSceneId=scene.id;await renderAt(currentTime);frames.push({name:scene.name,duration:d,start:acc,data:canvas.toDataURL('image/jpeg',.9)});acc+=d;$('#exportProgress').style.width=`${Math.round((i+1)/state.scenes.length*70)}%`;}
+    const bundle=await buildProjectBundle();const metadata=encodeProjectMetadata(bundle);const w=canvas.width,h=canvas.height,total=Math.max(.1,frames.reduce((n,f)=>n+f.duration,0));
+    const groups=frames.map((f,i)=>`<g opacity="0"><image href="${f.data}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.03;.97;1" begin="${f.start.toFixed(3)}s" dur="${Math.max(.25,f.duration).toFixed(3)}s" fill="freeze"/></g>`).join('');
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><metadata id="motionframe-project" data-encoding="base64">${metadata}</metadata><rect width="100%" height="100%" fill="#0b0f18"/>${groups}<text x="${w-18}" y="${h-16}" text-anchor="end" font-family="system-ui,sans-serif" font-size="${Math.max(10,Math.round(h*.018))}" fill="#ffffff" opacity=".38">MotionFrame · ${total.toFixed(1)}s</text></svg>`;
+    const blob=new Blob([svg],{type:'image/svg+xml'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`motionframe-${new Date().toISOString().slice(0,10)}.svg`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);$('#exportStatus').textContent=`SVG 완료 · ${(blob.size/1024/1024).toFixed(1)} MB`;$('#exportProgress').style.width='100%';toast('SVG 모션 보드를 저장했습니다. 편집 메타데이터가 포함되어 다시 불러올 수 있습니다.');
+  }catch(error){console.error(error);toast(`SVG 저장 실패: ${error.message}`,'error');$('#exportStatus').textContent='SVG 저장 실패';}
+  finally{currentTime=previousTime;selectedSceneId=previousSelected;await renderAll();}
+}
+async function importResultFile(file){
+  try{
+    if(file.type==='application/json'||/\.json$/i.test(file.name)){await importProjectFile(file);showWorkflowStage('studio');return;}
+    if(file.type==='image/svg+xml'||/\.svg$/i.test(file.name)){
+      const text=await file.text(),doc=new DOMParser().parseFromString(text,'image/svg+xml'),meta=doc.querySelector('#motionframe-project');
+      if(meta?.textContent){await restoreProjectBundle(decodeProjectMetadata(meta.textContent));toast('SVG에 포함된 MotionFrame 편집 상태를 복원했습니다.');showWorkflowStage('studio');return;}
+      await clearAllAssets();const scene=await makeImageSceneFromBlob(file,{name:file.name.replace(/\.svg$/i,''),sourceType:'upload'});state=demoProject();state.scenes=[scene];selectedSceneId=scene.id;saveState();await renderAll();toast('일반 SVG를 이미지 장면으로 불러왔습니다.');showWorkflowStage('studio');return;
+    }
+    if(file.type.startsWith('video/')||/\.webm$/i.test(file.name)){
+      const hit=exportRegistry().find(item=>item.signature===`${file.name}:${file.size}`);
+      if(hit?.project){state=sanitizeProject({...hit.project,version:12});selectedSceneId=state.scenes[0]?.id||null;saveState();await renderAll();toast('최근 WebM export와 매칭되어 편집 상태를 복원했습니다.');showWorkflowStage('studio');return;}
+      await clearAllAssets();const scene=await makeVideoSceneFromBlob(file,{name:file.name.replace(/\.[^.]+$/,'')});state=demoProject();state.concept.sourceType='video';state.scenes=[scene];selectedSceneId=scene.id;saveState();await renderAll();toast('WebM을 편집 가능한 영상 클립으로 불러왔습니다. 원래 장면별 설정은 SVG/Project 파일이 있어야 정확히 복원됩니다.');showWorkflowStage('studio');return;
+    }
+    throw new Error('지원하는 파일은 WebM, SVG, MotionFrame JSON입니다.');
+  }catch(error){console.error(error);toast(`결과 불러오기 실패: ${error.message}`,'error');}
+}
+
+async function exportProject(){
+  const bundle=await buildProjectBundle();downloadJson(bundle,`motionframe-project-${new Date().toISOString().slice(0,10)}.json`);toast('정확한 편집 상태와 미디어를 포함한 프로젝트 백업을 만들었습니다.');
 }
 
 async function importProjectFile(file){
-  try{const data=JSON.parse(await file.text());if(data.kind!=='motionframe-project'||!data.project)throw new Error('MotionFrame 프로젝트 파일이 아닙니다.');for(const [key,item] of Object.entries(data.assets||{})){await putAsset(key,dataUrlToBlob(item.data));}state=sanitizeProject(data.project);if(Array.isArray(data.customTemplates))storeCustomTemplates(data.customTemplates);selectedSceneId=state.scenes[0]?.id||null;currentTime=0;saveState();setupSelectOptions();renderTemplates();renderTemplateFilters();await renderAll();toast('프로젝트를 불러왔습니다.');}catch(err){toast(`프로젝트 불러오기 실패: ${err.message}`,'error');}
+  try{const data=JSON.parse(await file.text());await restoreProjectBundle(data);toast('프로젝트를 불러왔습니다.');}catch(err){toast(`프로젝트 불러오기 실패: ${err.message}`,'error');}
 }
 
 async function importTemplateFile(file){
   try{const data=JSON.parse(await file.text());const templates=Array.isArray(data)?data:[data];const valid=templates.filter(t=>t&&Array.isArray(t.sequence));if(!valid.length)throw new Error('유효한 템플릿이 없습니다.');const customs=loadCustomTemplates();valid.forEach(t=>customs.unshift({...t,id:createId('custom'),category:'custom'}));storeCustomTemplates(customs);setupSelectOptions();templateFilter='custom';renderTemplateFilters();renderTemplates();toast(`${valid.length}개 템플릿을 가져왔습니다.`);}catch(err){toast(`템플릿 가져오기 실패: ${err.message}`,'error');}
 }
 
+async function clearAllAssets(){
+  try{const db=await openDb();if(db){await new Promise((resolve,reject)=>{const tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).clear();tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}}catch{}
+  assetUrlCache.forEach((url)=>{try{URL.revokeObjectURL(url);}catch{}});assetUrlCache.clear();imageCache.clear();videoCache.forEach((video)=>{try{video.pause();}catch{}});videoCache.clear();customAudioBufferCache=null;
+}
+
 async function resetProject(){
-  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='impact-flow';conceptDrafts=[];conceptMediaBases=[];pendingConceptFiles={image:[],video:[]};selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();renderConceptUI();renderDrafts();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
+  pausePlayback();await clearAllAssets();localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(EXPORT_REGISTRY_KEY);state=demoProject();directorPlan=null;directorBases=[];directorTemplateId='impact-flow';conceptDrafts=[];conceptMediaBases=[];pendingConceptFiles={image:[],video:[]};selectedSceneId=null;currentTime=0;reviewPageIndex=0;saveState();renderConceptUI();renderDrafts();renderDirectorPlan();renderAnalysisReview();await renderAll();showWorkflowStage('concept');toast('이전 분석/장면/임시 미디어를 모두 지우고 빈 새 프로젝트로 시작했습니다.');
 }
 
 function bindInspector(){
@@ -2062,9 +2211,23 @@ function bindInspector(){
   $('#cursorEnabledInput').addEventListener('change',e=>updateSelectedScene({cursorEnabled:e.target.checked,cursorFollowPath:e.target.checked&&effectiveMotionPath(selectedScene()).length>=2,motionPreset:'custom'}));
 }
 
+function bindWorkflowEvents(){
+  $$('[data-workflow-stage]').forEach((button)=>button.addEventListener('click',()=>showWorkflowStage(button.dataset.workflowStage)));
+  $('#stageBackButton')?.addEventListener('click',goWorkflowBack);$('#stageNextButton')?.addEventListener('click',()=>goWorkflowNext());
+  $('#reviewContinueButton')?.addEventListener('click',()=>{if(!directorPlan?.pages?.length){toast('분석 결과가 없습니다.','error');return;}createConceptDrafts();showWorkflowStage('drafts');});
+  $('#advancedSourceToggle')?.addEventListener('click',()=>{const el=$('#capture');const open=el.hidden;el.hidden=!open;el.setAttribute('aria-hidden',String(!open));$('#advancedSourceToggle').textContent=open?'고급 URL 설정 닫기':'URL 고급 설정';});
+  $('#toggleTemplateLibrary')?.addEventListener('click',()=>{const el=$('#templates');const open=el.dataset.libraryOpen!=='true';el.dataset.libraryOpen=String(open);el.hidden=!open;$('#toggleTemplateLibrary').textContent=open?'모션 스타일 닫기':'전체 모션 스타일';});
+  $('#newProjectButton')?.addEventListener('click',()=>$('#resetDialog').showModal());$('#mobileNewProjectButton')?.addEventListener('click',()=>{$('#mobileNav').hidden=true;$('#resetDialog').showModal();});
+  $('#resultImportButton')?.addEventListener('click',()=>$('#resultImportInput').click());$('#mobileResultImportButton')?.addEventListener('click',()=>$('#resultImportInput').click());$('#studioResultImportButton')?.addEventListener('click',()=>$('#resultImportInput').click());
+  $('#resultImportInput')?.addEventListener('change',(event)=>{const file=event.target.files?.[0];if(file)importResultFile(file);event.target.value='';});
+  $('#exportSvgButton')?.addEventListener('click',exportSvg);$('#exportProjectStudioButton')?.addEventListener('click',exportProject);
+  $$('a[href="#concept"],a[href="#capture"],a[href="#review"],a[href="#drafts"],a[href="#director"],a[href="#templates"],a[href="#studio"]').forEach((a)=>a.addEventListener('click',(event)=>{event.preventDefault();const h=a.getAttribute('href');const map={'#concept':'concept','#capture':'source','#review':'review','#drafts':'drafts','#director':'flow','#templates':'flow','#studio':'studio'};showWorkflowStage(map[h]||'concept');}));
+}
+
 function bindEvents(){
+  bindWorkflowEvents();
   $('#menuButton').addEventListener('click',()=>{const nav=$('#mobileNav');const open=nav.hidden;nav.hidden=!open;$('#menuButton').setAttribute('aria-expanded',String(open));});
-  $('#generateDraftsButton')?.addEventListener('click',generateConceptDrafts);
+  $('#generateDraftsButton')?.addEventListener('click',analyzeConceptSource);
   $('#conceptImageButton')?.addEventListener('click',()=>$('#conceptImageInput').click());
   $('#conceptVideoButton')?.addEventListener('click',()=>$('#conceptVideoInput').click());
   $('#conceptRecordButton')?.addEventListener('click',recordConceptVideo);
@@ -2110,7 +2273,9 @@ function browserSupportCheck(){
 }
 
 async function init(){
+  await cleanupLegacyPersistence();
   state=loadState();
+  activeWorkflowStage=WORKFLOW_STAGES.includes(state.ui?.stage)?state.ui.stage:'concept';
   ensureConceptState();
   selectedSceneId=state.scenes[0]?.id||null;
   directorPlan=state.directorPlan?.pages ? state.directorPlan : null;
@@ -2141,8 +2306,8 @@ async function init(){
   renderDomAnalysis(state.scenes);
   window.__motionframeReady = true;
   document.documentElement.classList.add('app-ready');
-  const target = location.hash ? document.querySelector(location.hash) : null;
-  if (target) requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }));
+  const hashMap={'#concept':'concept','#capture':'source','#review':'review','#drafts':'drafts','#director':'flow','#templates':'flow','#studio':'studio'};
+  showWorkflowStage(hashMap[location.hash]||activeWorkflowStage,{save:false});
 }
 
 init().catch(err=>{
