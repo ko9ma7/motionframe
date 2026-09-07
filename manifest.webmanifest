@@ -1,14 +1,14 @@
 {
-  "name": "MotionFrame — Showcase Video Editor",
+  "name": "MotionFrame Studio",
   "short_name": "MotionFrame",
-  "description": "스크린샷과 화면 캡처를 줌·팬·커서 연출로 편집해 WebM으로 내보내는 브라우저 앱.",
+  "description": "URL과 화면을 줌·팬·커서·사운드 쇼케이스 영상으로 만드는 브라우저 편집기",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0d1324",
-  "theme_color": "#0d1324",
+  "background_color": "#0b0f18",
+  "theme_color": "#0b0f18",
   "icons": [
-    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" }
+    {"src":"./icon-192.png","sizes":"192x192","type":"image/png"},
+    {"src":"./icon-512.png","sizes":"512x512","type":"image/png"}
   ]
 }

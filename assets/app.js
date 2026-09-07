@@ -1,1065 +1,872 @@
-const STORAGE_KEY = "motionframe-project-v1";
-const DB_NAME = "motionframe-assets";
-const DB_VERSION = 1;
-const STORE_NAME = "blobs";
-const TRANSITION_MS = 320;
-const FPS = 30;
+import { builtinTemplates, hydrateMotion, motionPresets, templateCategories } from './templates.js';
+import { soundPresets, createProceduralBuffer, applyFade } from './audio.js';
 
-const demoAssets = [
-  new URL("./demo/dashboard.svg", import.meta.url).href,
-  new URL("./demo/detail.svg", import.meta.url).href,
-  new URL("./demo/report.svg", import.meta.url).href,
-];
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeInOut = (t) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const STORAGE_KEY = 'motionframe:v2:project';
+const TEMPLATE_KEY = 'motionframe:v2:templates';
+const DB_NAME = 'motionframe-studio-v2';
+const DB_STORE = 'assets';
+const API_ENDPOINT = 'https://api.microlink.io/';
 
-const dom = {
-  fileInput: document.querySelector("#fileInput"),
-  uploadButton: document.querySelector("#uploadButton"),
-  captureButton: document.querySelector("#captureButton"),
-  heroUploadButton: document.querySelector("#heroUploadButton"),
-  heroCaptureButton: document.querySelector("#heroCaptureButton"),
-  resetProjectButton: document.querySelector("#resetProjectButton"),
-  mobileResetProjectButton: document.querySelector("#mobileResetProjectButton"),
-  resetDialog: document.querySelector("#resetDialog"),
-  confirmResetButton: document.querySelector("#confirmResetButton"),
-  sceneList: document.querySelector("#sceneList"),
-  sceneEmpty: document.querySelector("#sceneEmpty"),
-  sceneCount: document.querySelector("#sceneCount"),
-  canvas: document.querySelector("#previewCanvas"),
-  canvasEmpty: document.querySelector("#canvasEmpty"),
-  playButton: document.querySelector("#playButton"),
-  playIcon: document.querySelector(".play-icon"),
-  pauseIcon: document.querySelector(".pause-icon"),
-  currentTime: document.querySelector("#currentTime"),
-  totalTime: document.querySelector("#totalTime"),
-  seekInput: document.querySelector("#seekInput"),
-  timeline: document.querySelector("#timeline"),
-  exportButton: document.querySelector("#exportButton"),
-  exportProgress: document.querySelector("#exportProgress"),
-  exportStatus: document.querySelector("#exportStatus"),
-  supportBanner: document.querySelector("#supportBanner"),
-  inspectorForm: document.querySelector("#inspectorForm"),
-  inspectorEmpty: document.querySelector("#inspectorEmpty"),
-  sceneNameInput: document.querySelector("#sceneNameInput"),
-  durationInput: document.querySelector("#durationInput"),
-  presetSelect: document.querySelector("#presetSelect"),
-  startZoomInput: document.querySelector("#startZoomInput"),
-  endZoomInput: document.querySelector("#endZoomInput"),
-  endXInput: document.querySelector("#endXInput"),
-  endYInput: document.querySelector("#endYInput"),
-  startZoomOutput: document.querySelector("#startZoomOutput"),
-  endZoomOutput: document.querySelector("#endZoomOutput"),
-  endXOutput: document.querySelector("#endXOutput"),
-  endYOutput: document.querySelector("#endYOutput"),
-  cursorEnabledInput: document.querySelector("#cursorEnabledInput"),
-  cursorControls: document.querySelector("#cursorControls"),
-  cursorXInput: document.querySelector("#cursorXInput"),
-  cursorYInput: document.querySelector("#cursorYInput"),
-  cursorXOutput: document.querySelector("#cursorXOutput"),
-  cursorYOutput: document.querySelector("#cursorYOutput"),
-  duplicateButton: document.querySelector("#duplicateButton"),
-  deleteButton: document.querySelector("#deleteButton"),
-  toastStack: document.querySelector("#toastStack"),
-  resolutionButtons: [...document.querySelectorAll(".resolution-button")],
-  mobileMenuButton: document.querySelector("#mobileMenuButton"),
-  mobileNavigation: document.querySelector("#mobileNavigation"),
-};
-
-const ctx = dom.canvas.getContext("2d", { alpha: false });
+let dbPromise;
+let state;
+let selectedSceneId = null;
+let currentTime = 0;
+let playing = false;
+let playStartStamp = 0;
+let renderRaf = 0;
+let templateFilter = 'all';
+let exportInProgress = false;
+let previewAudio = null;
+let soundPreviewTimer = 0;
+let customAudioBufferCache = null;
+const assetUrlCache = new Map();
 const imageCache = new Map();
-const objectUrls = new Map();
+const videoCache = new Map();
+let screenRecording = null;
 
-const state = {
-  scenes: [],
-  selectedId: null,
-  playheadMs: 0,
-  playing: false,
-  playStartedAt: 0,
-  playStartedFrom: 0,
-  exportRunning: false,
-  width: 1280,
-  height: 720,
-};
+const canvas = $('#previewCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
 
-function uid() {
-  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const createId = (prefix = 'id') => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+
+function openDb() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) return resolve(null);
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
 }
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+async function putAsset(key, blob) {
+  const db = await openDb();
+  if (!db) throw new Error('이 브라우저에서는 IndexedDB를 사용할 수 없습니다.');
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).put(blob, key);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  if (assetUrlCache.has(key)) URL.revokeObjectURL(assetUrlCache.get(key));
+  assetUrlCache.delete(key);
+  imageCache.delete(key);
+  videoCache.delete(key);
 }
 
-function lerp(a, b, t) {
-  return a + (b - a) * t;
+async function getAsset(key) {
+  const db = await openDb();
+  if (!db) return null;
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readonly');
+    const req = tx.objectStore(DB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
 }
 
-function easeInOutCubic(t) {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+async function deleteAsset(key) {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).delete(key);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  if (assetUrlCache.has(key)) URL.revokeObjectURL(assetUrlCache.get(key));
+  assetUrlCache.delete(key);
+  imageCache.delete(key);
+  const video = videoCache.get(key); if (video) { try { video.pause(); } catch {} }
+  videoCache.delete(key);
 }
 
-function easeOutQuint(t) {
-  return 1 - Math.pow(1 - t, 5);
+async function getAssetUrl(key) {
+  if (assetUrlCache.has(key)) return assetUrlCache.get(key);
+  const blob = await getAsset(key);
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  assetUrlCache.set(key, url);
+  return url;
 }
 
-function formatTime(ms) {
-  const total = Math.max(0, ms) / 1000;
-  const minutes = Math.floor(total / 60);
-  const seconds = Math.floor(total % 60);
-  const tenths = Math.floor((total % 1) * 10);
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths}`;
+function demoSvg(title, accent, variant = 0) {
+  const rows = variant === 0
+    ? '<rect x="250" y="310" width="610" height="28" rx="10" fill="#e7ebf2"/><rect x="250" y="358" width="610" height="28" rx="10" fill="#e7ebf2"/><rect x="250" y="406" width="610" height="28" rx="10" fill="#e7ebf2"/>'
+    : variant === 1
+      ? '<rect x="250" y="286" width="180" height="154" rx="18" fill="#e8edf5"/><rect x="450" y="286" width="180" height="154" rx="18" fill="#e8edf5"/><rect x="650" y="286" width="210" height="154" rx="18" fill="#e8edf5"/>'
+      : '<path d="M270 405 C340 330,390 380,450 302 S590 352,650 270 S760 310,850 230" fill="none" stroke="#7f8ba2" stroke-width="10" stroke-linecap="round"/><circle cx="650" cy="270" r="14" fill="'+accent+'"/>';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750" viewBox="0 0 1200 750"><rect width="1200" height="750" fill="#f7f9fc"/><rect width="1200" height="70" fill="#fff"/><circle cx="34" cy="35" r="7" fill="#d8dee8"/><circle cx="56" cy="35" r="7" fill="#d8dee8"/><circle cx="78" cy="35" r="7" fill="#d8dee8"/><rect x="102" y="22" width="310" height="26" rx="9" fill="#eff2f6"/><rect x="30" y="96" width="165" height="620" rx="18" fill="#101827"/><text x="58" y="140" font-family="Arial" font-size="18" font-weight="700" fill="#f7f9fc">MotionFrame</text><rect x="55" y="178" width="100" height="10" rx="5" fill="#31405a"/><rect x="55" y="218" width="82" height="10" rx="5" fill="#31405a"/><rect x="55" y="258" width="110" height="10" rx="5" fill="#31405a"/><text x="250" y="145" font-family="Arial" font-size="36" font-weight="700" fill="#151c28">${title}</text><rect x="250" y="176" width="390" height="14" rx="7" fill="#d9dfe9"/><rect x="250" y="210" width="210" height="14" rx="7" fill="#d9dfe9"/><rect x="720" y="118" width="140" height="48" rx="14" fill="${accent}"/>${rows}<rect x="250" y="492" width="610" height="170" rx="18" fill="#eef2f7"/><rect x="280" y="528" width="190" height="18" rx="9" fill="#cfd7e3"/><rect x="280" y="566" width="450" height="12" rx="6" fill="#dbe1ea"/><rect x="280" y="594" width="390" height="12" rx="6" fill="#dbe1ea"/></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-function defaultScene(name, source, sourceType = "demo", blobId = null) {
-  return {
-    id: uid(),
-    name,
-    source,
-    sourceType,
-    blobId,
-    duration: 3.2,
-    preset: "push-in",
+function baseScene(overrides = {}) {
+  return hydrateMotion({
+    id: createId('scene'),
+    name: '새 장면',
+    sourceType: 'demo',
+    assetKey: null,
+    imageUrl: '',
+    sourceUrl: '',
+    duration: 2.4,
+    transition: 'crossfade',
+    motionPreset: 'overview',
     startZoom: 100,
-    endZoom: 126,
+    endZoom: 116,
     startX: 50,
     startY: 50,
     endX: 50,
-    endY: 50,
-    cursorEnabled: true,
-    cursorStartX: 22,
-    cursorStartY: 76,
+    endY: 46,
+    cursorEnabled: false,
     cursorX: 66,
-    cursorY: 48,
-  };
+    cursorY: 52
+  }, overrides.motionPreset || 'overview', overrides);
 }
 
-function createDemoScenes() {
-  const first = defaultScene("대시보드 전체", demoAssets[0]);
-  first.duration = 3.4;
-  first.preset = "push-in";
-  first.endZoom = 122;
-  first.cursorX = 59;
-  first.cursorY = 42;
-
-  const second = defaultScene("핵심 지표 포커스", demoAssets[1]);
-  second.duration = 3.1;
-  second.preset = "detail";
-  second.startZoom = 108;
-  second.endZoom = 148;
-  second.endX = 68;
-  second.endY = 38;
-  second.cursorStartX = 35;
-  second.cursorStartY = 72;
-  second.cursorX = 70;
-  second.cursorY = 38;
-
-  const third = defaultScene("리포트 결과", demoAssets[2]);
-  third.duration = 3.3;
-  third.preset = "left-to-right";
-  third.startZoom = 112;
-  third.endZoom = 122;
-  third.startX = 38;
-  third.endX = 66;
-  third.cursorStartX = 44;
-  third.cursorStartY = 62;
-  third.cursorX = 78;
-  third.cursorY = 66;
-
-  return [first, second, third];
-}
-
-function getSelectedScene() {
-  return state.scenes.find((scene) => scene.id === state.selectedId) ?? null;
-}
-
-function totalDurationMs() {
-  return state.scenes.reduce((sum, scene) => sum + scene.duration * 1000, 0);
-}
-
-function sceneStartMs(sceneId) {
-  let total = 0;
-  for (const scene of state.scenes) {
-    if (scene.id === sceneId) return total;
-    total += scene.duration * 1000;
-  }
-  return 0;
-}
-
-function locateTime(ms) {
-  const total = totalDurationMs();
-  if (!state.scenes.length) return null;
-  const safe = clamp(ms, 0, Math.max(0, total - 0.001));
-  let cursor = 0;
-  for (let index = 0; index < state.scenes.length; index += 1) {
-    const scene = state.scenes[index];
-    const durationMs = scene.duration * 1000;
-    if (safe < cursor + durationMs || index === state.scenes.length - 1) {
-      return {
-        index,
-        scene,
-        localMs: safe - cursor,
-        durationMs,
-        startMs: cursor,
-      };
-    }
-    cursor += durationMs;
-  }
-  return null;
-}
-
-function sanitizePersistedScene(scene) {
+function demoProject() {
   return {
-    id: scene.id,
-    name: scene.name,
-    source: scene.sourceType === "demo" ? scene.source : "",
-    sourceType: scene.sourceType,
-    blobId: scene.blobId,
-    duration: scene.duration,
-    preset: scene.preset,
-    startZoom: scene.startZoom,
-    endZoom: scene.endZoom,
-    startX: scene.startX,
-    startY: scene.startY,
-    endX: scene.endX,
-    endY: scene.endY,
-    cursorEnabled: scene.cursorEnabled,
-    cursorStartX: scene.cursorStartX,
-    cursorStartY: scene.cursorStartY,
-    cursorX: scene.cursorX,
-    cursorY: scene.cursorY,
+    version: 2,
+    aspect: '16:9',
+    resolution: '1280x720',
+    frameStyle: 'browser',
+    audio: { preset: 'softPulse', volume: 42, fade: true, assetKey: null, name: '' },
+    scenes: [
+      baseScene({ name: '전체 화면', imageUrl: demoSvg('Automation overview', '#8da5ff', 0), duration: 2.2, sourceType: 'demo', motionPreset: 'overview' }),
+      baseScene({ name: '기능 포커스', imageUrl: demoSvg('Workflow builder', '#91d2b3', 1), duration: 2.4, sourceType: 'demo', motionPreset: 'focus', endX: 67, endY: 46, cursorX: 69, cursorY: 48 }),
+      baseScene({ name: '결과 확인', imageUrl: demoSvg('Report analytics', '#efc87a', 2), duration: 2.2, sourceType: 'demo', motionPreset: 'pullout', transition: 'zoom-out' })
+    ]
   };
 }
 
-function saveProject() {
+function sanitizeProject(project) {
+  const fallback = demoProject();
+  if (!project || !Array.isArray(project.scenes)) return fallback;
+  return {
+    version: 2,
+    aspect: ['16:9','9:16','1:1'].includes(project.aspect) ? project.aspect : '16:9',
+    resolution: ['1280x720','1920x1080'].includes(project.resolution) ? project.resolution : '1280x720',
+    frameStyle: ['browser','floating','none'].includes(project.frameStyle) ? project.frameStyle : 'browser',
+    audio: {
+      preset: project.audio?.preset || 'softPulse',
+      volume: clamp(Number(project.audio?.volume ?? 42), 0, 100),
+      fade: project.audio?.fade !== false,
+      assetKey: project.audio?.assetKey || null,
+      name: project.audio?.name || ''
+    },
+    scenes: project.scenes.map((scene) => baseScene({ ...scene, id: scene.id || createId('scene') }))
+  };
+}
+
+function loadState() {
   try {
-    const payload = {
-      version: 1,
-      selectedId: state.selectedId,
-      width: state.width,
-      height: state.height,
-      scenes: state.scenes.map(sanitizePersistedScene),
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  } catch (error) {
-    console.warn("Project metadata could not be saved", error);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return sanitizeProject(raw ? JSON.parse(raw) : null);
+  } catch {
+    return demoProject();
   }
 }
 
-function openDb() {
-  return new Promise((resolve, reject) => {
-    if (!window.indexedDB) {
-      reject(new Error("이 브라우저는 IndexedDB를 지원하지 않습니다."));
-      return;
-    }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("IndexedDB를 열 수 없습니다."));
-  });
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  $('#saveState').textContent = '저장됨';
+  clearTimeout(saveState.timer);
+  saveState.timer = setTimeout(() => { $('#saveState').textContent = '로컬 저장'; }, 1300);
 }
 
-async function putBlob(id, blob) {
-  const db = await openDb();
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(blob, id);
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error ?? new Error("이미지를 저장할 수 없습니다."));
-  });
-  db.close();
-}
-
-async function getBlob(id) {
-  const db = await openDb();
-  const result = await new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readonly");
-    const request = tx.objectStore(STORE_NAME).get(id);
-    request.onsuccess = () => resolve(request.result ?? null);
-    request.onerror = () => reject(request.error ?? new Error("이미지를 읽을 수 없습니다."));
-  });
-  db.close();
-  return result;
-}
-
-async function deleteBlob(id) {
-  if (!id) return;
-  const db = await openDb();
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).delete(id);
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error ?? new Error("이미지를 삭제할 수 없습니다."));
-  });
-  db.close();
-}
-
-async function clearBlobs() {
-  const db = await openDb();
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).clear();
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error ?? new Error("저장된 이미지를 초기화할 수 없습니다."));
-  });
-  db.close();
-}
-
-async function restoreProject() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    state.scenes = createDemoScenes();
-    state.selectedId = state.scenes[0].id;
-    return;
-  }
-
+function loadCustomTemplates() {
   try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed.scenes)) throw new Error("invalid project");
-    const restored = [];
-    for (const scene of parsed.scenes) {
-      if (scene.sourceType === "upload" && scene.blobId) {
-        const blob = await getBlob(scene.blobId);
-        if (!blob) continue;
-        const url = URL.createObjectURL(blob);
-        objectUrls.set(scene.id, url);
-        restored.push({ ...scene, source: url });
-      } else {
-        restored.push(scene);
-      }
-    }
-    state.scenes = restored.length ? restored : createDemoScenes();
-    state.selectedId = state.scenes.some((scene) => scene.id === parsed.selectedId) ? parsed.selectedId : state.scenes[0]?.id ?? null;
-    if (parsed.width === 1920 && parsed.height === 1080) {
-      state.width = 1920;
-      state.height = 1080;
-    }
-  } catch (error) {
-    console.warn("Saved project was invalid; demo project loaded", error);
-    state.scenes = createDemoScenes();
-    state.selectedId = state.scenes[0].id;
-  }
+    const data = JSON.parse(localStorage.getItem(TEMPLATE_KEY) || '[]');
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
 }
 
-function toast(message, type = "info") {
-  const element = document.createElement("div");
-  element.className = `toast ${type}`;
-  element.textContent = message;
-  dom.toastStack.append(element);
-  requestAnimationFrame(() => element.classList.add("show"));
-  setTimeout(() => {
-    element.classList.remove("show");
-    setTimeout(() => element.remove(), 220);
-  }, 3200);
+function storeCustomTemplates(templates) {
+  localStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates));
 }
 
-function showSupportInfo() {
-  const missing = [];
-  if (!window.MediaRecorder) missing.push("WebM 녹화");
-  if (!HTMLCanvasElement.prototype.captureStream) missing.push("Canvas 영상 스트림");
-  if (!navigator.mediaDevices?.getDisplayMedia) missing.push("화면 캡처");
-  if (missing.length) {
-    dom.supportBanner.className = "status-banner notice";
-    dom.supportBanner.textContent = `현재 브라우저에서 일부 기능이 제한됩니다: ${missing.join(", ")}. 최신 Chrome 또는 Edge를 권장합니다.`;
-  }
+function currentTemplates() { return [...builtinTemplates, ...loadCustomTemplates()]; }
+
+function totalDuration() { return state.scenes.reduce((sum, scene) => sum + Number(scene.duration || 0), 0); }
+
+function formatTime(value) {
+  const seconds = Math.max(0, value || 0);
+  const min = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const sec = Math.floor(seconds % 60).toString().padStart(2, '0');
+  const tenth = Math.floor((seconds % 1) * 10);
+  return `${min}:${sec}.${tenth}`;
 }
 
-function getSupportedMimeType() {
-  if (!window.MediaRecorder) return "";
-  const candidates = [
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
-    "video/webm",
-  ];
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
+function toast(message, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type === 'error' ? 'error' : ''}`;
+  el.textContent = message;
+  $('#toastRoot').append(el);
+  setTimeout(() => el.remove(), 3600);
 }
 
-function loadImage(src) {
-  if (imageCache.has(src)) return imageCache.get(src);
+function setCaptureStatus(title, text, mode = '') {
+  const el = $('#captureStatus');
+  el.className = `capture-status ${mode}`.trim();
+  el.querySelector('strong').textContent = title;
+  el.querySelector('p').textContent = text;
+}
+
+function normalizeUrl(value) {
+  let text = String(value || '').trim();
+  if (!text) throw new Error('사이트 URL을 입력해 주세요.');
+  if (!/^https?:\/\//i.test(text)) text = `https://${text}`;
+  const url = new URL(text);
+  if (!['http:','https:'].includes(url.protocol)) throw new Error('http 또는 https URL만 사용할 수 있습니다.');
+  return url.toString();
+}
+
+function parseUrlList(value) {
+  const lines=String(value||'').split(/
++/).map(v=>v.trim()).filter(Boolean);
+  if(!lines.length)throw new Error('사이트 URL을 입력해 주세요.');
+  return lines.slice(0,8).map(normalizeUrl);
+}
+
+function sceneAssetRef(scene) { return scene.assetKey || scene.imageUrl; }
+
+async function sourceUrlForScene(scene) {
+  if (scene.assetKey) return getAssetUrl(scene.assetKey);
+  return scene.imageUrl || null;
+}
+
+async function imageForScene(scene) {
+  const key = sceneAssetRef(scene);
+  if (!key) return null;
+  if (imageCache.has(key)) return imageCache.get(key);
+  const url = await sourceUrlForScene(scene);
+  if (!url) return null;
   const promise = new Promise((resolve, reject) => {
-    const image = new Image();
-    image.decoding = "async";
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("이미지를 불러오지 못했습니다."));
-    image.src = src;
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('이미지를 불러오지 못했습니다.'));
+    img.src = url;
   });
-  imageCache.set(src, promise);
+  imageCache.set(key, promise);
   return promise;
 }
 
-async function preloadScenes() {
-  await Promise.allSettled(state.scenes.map((scene) => loadImage(scene.source)));
+async function videoForScene(scene) {
+  const key = sceneAssetRef(scene);
+  if (!key) return null;
+  if (videoCache.has(key)) return videoCache.get(key);
+  const url = await sourceUrlForScene(scene);
+  if (!url) return null;
+  const promise = new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'auto'; video.muted = true; video.playsInline = true; video.src = url;
+    video.addEventListener('loadedmetadata', () => resolve(video), { once:true });
+    video.addEventListener('error', () => reject(new Error('영상 클립을 불러오지 못했습니다.')), { once:true });
+    video.load();
+  });
+  videoCache.set(key, promise);
+  return promise;
 }
 
-function drawBaseBackground() {
-  ctx.save();
-  ctx.fillStyle = "#060a13";
-  ctx.fillRect(0, 0, state.width, state.height);
-  ctx.restore();
-}
-
-function sourceRectForCamera(image, scene, progress) {
-  const p = easeInOutCubic(clamp(progress, 0, 1));
-  const zoom = lerp(scene.startZoom, scene.endZoom, p) / 100;
-  const focusX = lerp(scene.startX, scene.endX, p) / 100;
-  const focusY = lerp(scene.startY, scene.endY, p) / 100;
-  const canvasAspect = state.width / state.height;
-  const imageAspect = image.naturalWidth / image.naturalHeight;
-
-  let baseWidth;
-  let baseHeight;
-  if (imageAspect >= canvasAspect) {
-    baseHeight = image.naturalHeight;
-    baseWidth = baseHeight * canvasAspect;
-  } else {
-    baseWidth = image.naturalWidth;
-    baseHeight = baseWidth / canvasAspect;
-  }
-
-  const sourceWidth = baseWidth / zoom;
-  const sourceHeight = baseHeight / zoom;
-  const centerX = focusX * image.naturalWidth;
-  const centerY = focusY * image.naturalHeight;
-  const sx = clamp(centerX - sourceWidth / 2, 0, Math.max(0, image.naturalWidth - sourceWidth));
-  const sy = clamp(centerY - sourceHeight / 2, 0, Math.max(0, image.naturalHeight - sourceHeight));
-  return { sx, sy, sourceWidth, sourceHeight };
-}
-
-function drawSceneImage(image, scene, progress, alpha = 1) {
-  const rect = sourceRectForCamera(image, scene, progress);
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(image, rect.sx, rect.sy, rect.sourceWidth, rect.sourceHeight, 0, 0, state.width, state.height);
-  ctx.restore();
-}
-
-function drawCursor(scene, progress, alpha = 1) {
-  if (!scene.cursorEnabled) return;
-  const moveT = easeOutQuint(clamp(progress / 0.62, 0, 1));
-  const startX = scene.cursorStartX / 100 * state.width;
-  const startY = scene.cursorStartY / 100 * state.height;
-  const endX = scene.cursorX / 100 * state.width;
-  const endY = scene.cursorY / 100 * state.height;
-  const x = lerp(startX, endX, moveT);
-  const y = lerp(startY, endY, moveT);
-  const scale = state.width / 1280;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-
-  const clickProgress = clamp((progress - 0.60) / 0.18, 0, 1);
-  if (clickProgress > 0 && clickProgress < 1) {
-    ctx.beginPath();
-    ctx.arc(endX, endY, (10 + 24 * clickProgress) * scale, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(111, 140, 255, ${0.82 * (1 - clickProgress)})`;
-    ctx.lineWidth = Math.max(2, 3 * scale);
-    ctx.stroke();
-  }
-
-  ctx.translate(x, y);
-  ctx.scale(scale, scale);
-  ctx.shadowColor = "rgba(0,0,0,.35)";
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(0, 27);
-  ctx.lineTo(7.4, 20.4);
-  ctx.lineTo(12.8, 31.5);
-  ctx.lineTo(18.2, 28.9);
-  ctx.lineTo(12.9, 17.9);
-  ctx.lineTo(23, 17.2);
-  ctx.closePath();
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-  ctx.shadowColor = "transparent";
-  ctx.strokeStyle = "#15213c";
-  ctx.lineWidth = 1.9;
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawPolishOverlay(alpha = 1) {
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  const gradient = ctx.createRadialGradient(state.width / 2, state.height / 2, state.width * .18, state.width / 2, state.height / 2, state.width * .72);
-  gradient.addColorStop(0, "rgba(0,0,0,0)");
-  gradient.addColorStop(1, "rgba(1,6,18,.10)");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, state.width, state.height);
-  ctx.restore();
-}
-
-async function renderAtTime(ms) {
-  drawBaseBackground();
-  if (!state.scenes.length) return;
-
-  const located = locateTime(ms);
-  if (!located) return;
-  const { scene, index, localMs, durationMs } = located;
-  const progress = clamp(localMs / durationMs, 0, 1);
-
-  try {
-    const currentImage = await loadImage(scene.source);
-    const transitionRatio = index > 0 ? clamp(localMs / TRANSITION_MS, 0, 1) : 1;
-
-    if (index > 0 && transitionRatio < 1) {
-      const previous = state.scenes[index - 1];
-      const previousImage = await loadImage(previous.source);
-      drawSceneImage(previousImage, previous, 1, 1);
-      drawSceneImage(currentImage, scene, progress, easeInOutCubic(transitionRatio));
-      drawCursor(previous, 1, 1 - transitionRatio);
-      drawCursor(scene, progress, transitionRatio);
-    } else {
-      drawSceneImage(currentImage, scene, progress, 1);
-      drawCursor(scene, progress, 1);
-    }
-    drawPolishOverlay();
-  } catch (error) {
-    ctx.save();
-    ctx.fillStyle = "#101827";
-    ctx.fillRect(0, 0, state.width, state.height);
-    ctx.fillStyle = "#d5dceb";
-    ctx.font = `${Math.round(state.width / 50)}px system-ui`;
-    ctx.textAlign = "center";
-    ctx.fillText("이미지를 불러올 수 없습니다.", state.width / 2, state.height / 2);
-    ctx.restore();
-  }
-}
-
-function updateTransport() {
-  const total = totalDurationMs();
-  dom.seekInput.max = String(Math.max(total, 1));
-  dom.seekInput.value = String(clamp(state.playheadMs, 0, Math.max(total, 1)));
-  dom.currentTime.textContent = formatTime(state.playheadMs);
-  dom.totalTime.textContent = formatTime(total);
-  dom.playIcon.hidden = state.playing;
-  dom.pauseIcon.hidden = !state.playing;
-  dom.playButton.setAttribute("aria-label", state.playing ? "일시정지" : "재생");
-}
-
-function play() {
-  if (!state.scenes.length || state.exportRunning) return;
-  const total = totalDurationMs();
-  if (state.playheadMs >= total - 20) state.playheadMs = 0;
-  state.playing = true;
-  state.playStartedAt = performance.now();
-  state.playStartedFrom = state.playheadMs;
-  updateTransport();
-  requestAnimationFrame(playLoop);
-}
-
-function pause() {
-  state.playing = false;
-  updateTransport();
-}
-
-async function playLoop(now) {
-  if (!state.playing) return;
-  const total = totalDurationMs();
-  state.playheadMs = state.playStartedFrom + (now - state.playStartedAt);
-  if (state.playheadMs >= total) {
-    state.playheadMs = total;
-    pause();
-    await renderAtTime(Math.max(0, total - 0.001));
+async function syncVideoFrame(video, targetTime, duration) {
+  const maxTime = Math.max(0, Math.min(video.duration || duration || 0, targetTime));
+  if (playing || exportInProgress) {
+    if (Math.abs(video.currentTime - maxTime) > .35) video.currentTime = maxTime;
+    video.playbackRate = clamp((video.duration || duration || 1) / Math.max(duration || 1, .1), .25, 4);
+    if (video.paused) video.play().catch(() => {});
     return;
   }
-  await renderAtTime(state.playheadMs);
-  updateTransport();
-  requestAnimationFrame(playLoop);
-}
-
-function applyPreset(scene, preset) {
-  scene.preset = preset;
-  if (preset === "custom") return;
-  const presets = {
-    "push-in": { startZoom: 100, endZoom: 126, startX: 50, startY: 50, endX: 50, endY: 50 },
-    "pull-out": { startZoom: 138, endZoom: 104, startX: 50, startY: 50, endX: 50, endY: 50 },
-    "left-to-right": { startZoom: 116, endZoom: 122, startX: 34, startY: 50, endX: 68, endY: 50 },
-    "right-to-left": { startZoom: 116, endZoom: 122, startX: 68, startY: 50, endX: 34, endY: 50 },
-    "top-to-bottom": { startZoom: 116, endZoom: 122, startX: 50, startY: 30, endX: 50, endY: 70 },
-    detail: { startZoom: 108, endZoom: 148, startX: 50, startY: 50, endX: 68, endY: 38 },
-  };
-  Object.assign(scene, presets[preset]);
-}
-
-function updateInspector() {
-  const scene = getSelectedScene();
-  const hasScene = Boolean(scene);
-  dom.inspectorForm.hidden = !hasScene;
-  dom.inspectorEmpty.hidden = hasScene;
-  if (!scene) return;
-
-  dom.sceneNameInput.value = scene.name;
-  dom.durationInput.value = String(scene.duration);
-  dom.presetSelect.value = scene.preset;
-  dom.startZoomInput.value = String(scene.startZoom);
-  dom.endZoomInput.value = String(scene.endZoom);
-  dom.endXInput.value = String(scene.endX);
-  dom.endYInput.value = String(scene.endY);
-  dom.cursorEnabledInput.checked = scene.cursorEnabled;
-  dom.cursorXInput.value = String(scene.cursorX);
-  dom.cursorYInput.value = String(scene.cursorY);
-  dom.cursorControls.hidden = !scene.cursorEnabled;
-  dom.startZoomOutput.textContent = `${scene.startZoom}%`;
-  dom.endZoomOutput.textContent = `${scene.endZoom}%`;
-  dom.endXOutput.textContent = `${scene.endX}%`;
-  dom.endYOutput.textContent = `${scene.endY}%`;
-  dom.cursorXOutput.textContent = `${scene.cursorX}%`;
-  dom.cursorYOutput.textContent = `${scene.cursorY}%`;
-}
-
-function renderSceneList() {
-  dom.sceneList.innerHTML = "";
-  dom.sceneCount.textContent = String(state.scenes.length);
-  dom.sceneEmpty.hidden = state.scenes.length > 0;
-  dom.canvasEmpty.hidden = state.scenes.length > 0;
-
-  state.scenes.forEach((scene, index) => {
-    const item = document.createElement("div");
-    item.className = `scene-item${scene.id === state.selectedId ? " selected" : ""}`;
-    item.dataset.sceneId = scene.id;
-    item.innerHTML = `
-      <button class="scene-select" type="button" data-action="select" aria-label="${escapeHtml(scene.name)} 장면 선택"></button>
-      <span class="scene-thumb"><img src="${scene.source}" alt="" /></span>
-      <span class="scene-copy"><strong>${escapeHtml(scene.name)}</strong><span>${scene.duration.toFixed(1)}초 · ${presetLabel(scene.preset)}</span></span>
-      <span class="scene-order">
-        <button type="button" data-action="up" title="앞으로 이동" aria-label="${escapeHtml(scene.name)} 장면을 앞으로 이동" ${index === 0 ? "disabled" : ""}>↑</button>
-        <button type="button" data-action="down" title="뒤로 이동" aria-label="${escapeHtml(scene.name)} 장면을 뒤로 이동" ${index === state.scenes.length - 1 ? "disabled" : ""}>↓</button>
-      </span>
-    `;
-    dom.sceneList.append(item);
+  video.pause();
+  if (Math.abs(video.currentTime - maxTime) <= .03) return;
+  await new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (done) return; done = true; video.removeEventListener('seeked', finish); resolve(); };
+    video.addEventListener('seeked', finish, { once:true });
+    video.currentTime = maxTime;
+    setTimeout(finish, 160);
   });
 }
 
-function renderTimeline() {
-  dom.timeline.innerHTML = "";
-  for (const scene of state.scenes) {
-    const segment = document.createElement("div");
-    segment.className = `timeline-segment${scene.id === state.selectedId ? " selected" : ""}`;
-    segment.style.flexGrow = String(Math.max(1, scene.duration));
-    segment.innerHTML = `<button type="button" data-scene-id="${scene.id}" aria-label="${escapeHtml(scene.name)} 위치로 이동"><img src="${scene.source}" alt="" /></button><span>${scene.duration.toFixed(1)}s</span>`;
-    dom.timeline.append(segment);
+function getOutputSize() {
+  const high = state.resolution === '1920x1080';
+  if (state.aspect === '9:16') return high ? [1080,1920] : [720,1280];
+  if (state.aspect === '1:1') return high ? [1080,1080] : [720,720];
+  return high ? [1920,1080] : [1280,720];
+}
+
+function syncCanvasSize() {
+  const [w,h] = getOutputSize();
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  const shell = $('#canvasShell');
+  shell.classList.toggle('portrait', state.aspect === '9:16');
+  shell.classList.toggle('square', state.aspect === '1:1');
+  $('#previewBadge').textContent = `${state.resolution === '1920x1080' ? '1080p' : '720p'} · 30fps`;
+}
+
+function roundedRect(context, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + w, y, x + w, y + h, radius);
+  context.arcTo(x + w, y + h, x, y + h, radius);
+  context.arcTo(x, y + h, x, y, radius);
+  context.arcTo(x, y, x + w, y, radius);
+  context.closePath();
+}
+
+function drawFocusedMedia(context, img, x, y, w, h, zoom, focusX, focusY) {
+  const sourceWidth = img.naturalWidth || img.videoWidth;
+  const sourceHeight = img.naturalHeight || img.videoHeight;
+  const targetRatio = w / h;
+  const imageRatio = sourceWidth / sourceHeight;
+  let baseW, baseH;
+  if (imageRatio > targetRatio) { baseH = sourceHeight; baseW = baseH * targetRatio; }
+  else { baseW = sourceWidth; baseH = baseW / targetRatio; }
+  const z = Math.max(1, zoom / 100);
+  const sw = Math.min(sourceWidth, baseW / z);
+  const sh = Math.min(sourceHeight, baseH / z);
+  const sx = clamp((sourceWidth - sw) * (focusX / 100), 0, sourceWidth - sw);
+  const sy = clamp((sourceHeight - sh) * (focusY / 100), 0, sourceHeight - sh);
+  context.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+function drawCursor(context, x, y, size, clickProgress) {
+  context.save();
+  if (clickProgress > 0 && clickProgress < 1) {
+    context.strokeStyle = `rgba(142,168,255,${(1 - clickProgress) * .9})`;
+    context.lineWidth = Math.max(2, size * .08);
+    context.beginPath();
+    context.arc(x, y, size * (.35 + clickProgress * .7), 0, Math.PI * 2);
+    context.stroke();
+  }
+  context.translate(x, y);
+  context.scale(size / 34, size / 34);
+  context.beginPath();
+  context.moveTo(0, 0); context.lineTo(0, 31); context.lineTo(8, 23); context.lineTo(14, 34); context.lineTo(20, 31); context.lineTo(14, 20); context.lineTo(26, 20); context.closePath();
+  context.fillStyle = '#ffffff';
+  context.strokeStyle = '#0b1019';
+  context.lineWidth = 2.4;
+  context.fill(); context.stroke();
+  context.restore();
+}
+
+function frameGeometry(width, height) {
+  if (state.frameStyle === 'none') return { x:0, y:0, w:width, h:height, chrome:0, radius:0 };
+  const portrait = height > width;
+  const mx = state.frameStyle === 'floating' ? width * (portrait ? .10 : .07) : width * (portrait ? .075 : .055);
+  const my = state.frameStyle === 'floating' ? height * .08 : height * .065;
+  const chrome = state.frameStyle === 'browser' ? Math.max(24, height * .045) : 0;
+  return { x:mx, y:my, w:width - mx*2, h:height - my*2, chrome, radius: Math.max(12, width * .012) };
+}
+
+async function drawScene(scene, progress, opacity = 1, transform = {}) {
+  let img;
+  if (scene.sourceType === 'video') {
+    img = await videoForScene(scene).catch(() => null);
+    if (!img) return;
+    const mediaDuration = Number(scene.mediaDuration || img.duration || scene.duration || 1);
+    await syncVideoFrame(img, clamp(progress,0,1) * mediaDuration, Number(scene.duration || mediaDuration));
+  } else {
+    img = await imageForScene(scene).catch(() => null);
+    if (!img) return;
+  }
+  const w = canvas.width, h = canvas.height;
+  const p = easeInOut(clamp(progress,0,1));
+  const zoom = lerp(Number(scene.startZoom), Number(scene.endZoom), p);
+  const focusX = lerp(Number(scene.startX), Number(scene.endX), p);
+  const focusY = lerp(Number(scene.startY), Number(scene.endY), p);
+  const geom = frameGeometry(w,h);
+  const contentY = geom.y + geom.chrome;
+  const contentH = geom.h - geom.chrome;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  const scale = transform.scale ?? 1;
+  const tx = transform.x ?? 0;
+  const ty = transform.y ?? 0;
+  ctx.translate(w/2 + tx, h/2 + ty); ctx.scale(scale, scale); ctx.translate(-w/2, -h/2);
+
+  if (state.frameStyle !== 'none') {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.38)'; ctx.shadowBlur = Math.max(18, w*.024); ctx.shadowOffsetY = Math.max(8,h*.012);
+    roundedRect(ctx, geom.x, geom.y, geom.w, geom.h, geom.radius); ctx.fillStyle = '#0d131e'; ctx.fill();
+    ctx.restore();
+  }
+  if (state.frameStyle === 'browser') {
+    roundedRect(ctx, geom.x, geom.y, geom.w, geom.h, geom.radius); ctx.clip();
+    ctx.fillStyle = '#171f2d'; ctx.fillRect(geom.x, geom.y, geom.w, geom.chrome);
+    const dot = geom.chrome * .13; const cy = geom.y + geom.chrome / 2;
+    ['#647087','#647087','#647087'].forEach((color,i) => { ctx.beginPath(); ctx.arc(geom.x + geom.chrome*.36 + i*dot*2.2, cy, dot, 0, Math.PI*2); ctx.fillStyle=color; ctx.fill(); });
+    const host = (() => { try { return scene.sourceUrl ? new URL(scene.sourceUrl).hostname : 'product.local'; } catch { return 'product.local'; }})();
+    ctx.fillStyle = '#273144'; roundedRect(ctx, geom.x + geom.w*.28, geom.y + geom.chrome*.24, geom.w*.44, geom.chrome*.52, geom.chrome*.18); ctx.fill();
+    ctx.fillStyle = '#8e9aaf'; ctx.font = `${Math.max(9,geom.chrome*.24)}px system-ui`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(host, geom.x + geom.w*.5, cy);
+  } else if (state.frameStyle === 'floating') {
+    roundedRect(ctx, geom.x, geom.y, geom.w, geom.h, geom.radius); ctx.clip();
+  }
+
+  drawFocusedMedia(ctx, img, geom.x, contentY, geom.w, contentH, zoom, focusX, focusY);
+  ctx.restore();
+
+  if (scene.cursorEnabled) {
+    const cursorT = clamp((progress - .08) / .68, 0, 1);
+    const cp = easeInOut(cursorT);
+    const startCX = 18, startCY = 24;
+    const cx = lerp(startCX, Number(scene.cursorX), cp) / 100 * w;
+    const cy = lerp(startCY, Number(scene.cursorY), cp) / 100 * h;
+    const click = progress > .70 && progress < .88 ? (progress - .70) / .18 : 0;
+    drawCursor(ctx, cx, cy, Math.max(26,w*.025), click);
   }
 }
 
-function presetLabel(preset) {
-  const labels = {
-    "push-in": "중앙 줌인",
-    "pull-out": "줌아웃",
-    "left-to-right": "좌→우",
-    "right-to-left": "우→좌",
-    "top-to-bottom": "상→하",
-    detail: "디테일",
-    custom: "직접 설정",
-  };
-  return labels[preset] ?? "직접 설정";
+function locateTime(time) {
+  let acc = 0;
+  for (let i=0;i<state.scenes.length;i+=1) {
+    const d = Number(state.scenes[i].duration || 0);
+    if (time <= acc + d || i === state.scenes.length - 1) return { index:i, local: clamp(time-acc,0,d), duration:d, start:acc };
+    acc += d;
+  }
+  return { index:0, local:0, duration:1, start:0 };
+}
+
+async function renderAt(time) {
+  syncCanvasSize();
+  const w = canvas.width, h = canvas.height;
+  const bg = ctx.createLinearGradient(0,0,w,h); bg.addColorStop(0,'#0c111b'); bg.addColorStop(1,'#161f2e'); ctx.fillStyle = bg; ctx.fillRect(0,0,w,h);
+  if (!state.scenes.length) { $('#canvasMessage').hidden = false; return; }
+  $('#canvasMessage').hidden = true;
+  const loc = locateTime(clamp(time,0,totalDuration()));
+  const scene = state.scenes[loc.index];
+  const p = loc.duration ? loc.local / loc.duration : 0;
+  const transitionLength = Math.min(.5, loc.duration * .22);
+  const transitionStart = 1 - transitionLength / loc.duration;
+  const transP = p > transitionStart && loc.index < state.scenes.length-1 ? clamp((p-transitionStart)/(1-transitionStart),0,1) : 0;
+  const next = state.scenes[loc.index+1];
+
+  if (!transP || scene.transition === 'cut' || !next) {
+    await drawScene(scene,p,1);
+  } else if (scene.transition === 'crossfade') {
+    await drawScene(scene,p,1-transP);
+    await drawScene(next,0,transP);
+  } else if (scene.transition === 'zoom-out') {
+    await drawScene(scene,p,1-transP*.35,{ scale:1-transP*.08 });
+    await drawScene(next,0,transP,{ scale:.92+transP*.08 });
+  } else if (scene.transition === 'slide') {
+    await drawScene(scene,p,1,{ x:-w*transP });
+    await drawScene(next,0,1,{ x:w*(1-transP) });
+  }
+}
+
+async function updatePreview() { await renderAt(currentTime); }
+
+function selectScene(id) {
+  selectedSceneId = id;
+  const index = state.scenes.findIndex(s => s.id === id);
+  if (index >= 0) {
+    currentTime = state.scenes.slice(0,index).reduce((sum,s)=>sum+Number(s.duration),0) + .001;
+  }
+  renderAll();
+}
+
+function selectedScene() { return state.scenes.find(s => s.id === selectedSceneId) || null; }
+
+async function renderSceneCards() {
+  const list = $('#sceneList'); const timeline = $('#timeline');
+  list.innerHTML = ''; timeline.innerHTML = '';
+  $('#sceneCountBadge').textContent = state.scenes.length;
+  $('#sceneEmpty').hidden = state.scenes.length > 0;
+  for (let i=0;i<state.scenes.length;i+=1) {
+    const scene = state.scenes[i];
+    const card = document.createElement('button');
+    card.type='button'; card.className=`scene-card ${scene.id===selectedSceneId?'active':''}`; card.draggable=true; card.dataset.id=scene.id;
+    card.innerHTML=`<span class="scene-thumb"></span><span class="scene-copy"><strong>${escapeHtml(scene.name)}</strong><span>${Number(scene.duration).toFixed(1)}s · ${escapeHtml(motionPresets[scene.motionPreset]?.label || '직접 설정')}</span></span>`;
+    card.addEventListener('click',()=>selectScene(scene.id));
+    card.addEventListener('dragstart',(e)=>e.dataTransfer.setData('text/plain',scene.id));
+    card.addEventListener('dragover',(e)=>e.preventDefault());
+    card.addEventListener('drop',(e)=>{e.preventDefault(); reorderScene(e.dataTransfer.getData('text/plain'),scene.id);});
+    list.append(card);
+
+    const item=document.createElement('button'); item.type='button'; item.className=`timeline-item ${scene.id===selectedSceneId?'active':''}`; item.dataset.id=scene.id; item.style.flexBasis=`${clamp(Number(scene.duration)*52,82,190)}px`;
+    item.innerHTML=`<span class="timeline-image"></span><span>${Number(scene.duration).toFixed(1)}s</span><strong>${escapeHtml(scene.name)}</strong>`;
+    item.addEventListener('click',()=>selectScene(scene.id)); timeline.append(item);
+    sourceUrlForScene(scene).then(url=>{ if(!url)return; card.querySelector('.scene-thumb').style.backgroundImage=`url("${url.replaceAll('"','%22')}")`; item.querySelector('.timeline-image').style.backgroundImage=`url("${url.replaceAll('"','%22')}")`; });
+  }
 }
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>'"]/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "'": "&#39;",
-    '"': "&quot;",
-  })[char]);
+  return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
 }
 
-async function syncUi({ renderCanvas = true } = {}) {
-  renderSceneList();
-  renderTimeline();
-  updateInspector();
-  updateTransport();
-  updateResolutionButtons();
-  saveProject();
-  if (renderCanvas) await renderAtTime(state.playheadMs);
+function reorderScene(fromId,toId) {
+  if (!fromId || fromId===toId) return;
+  const from=state.scenes.findIndex(s=>s.id===fromId), to=state.scenes.findIndex(s=>s.id===toId);
+  if (from<0||to<0)return;
+  const [moved]=state.scenes.splice(from,1); state.scenes.splice(to,0,moved); saveState(); renderAll(); toast('장면 순서를 변경했습니다.');
 }
 
-function selectScene(id) {
-  if (!state.scenes.some((scene) => scene.id === id)) return;
-  state.selectedId = id;
-  state.playheadMs = sceneStartMs(id);
-  pause();
-  syncUi();
-}
-
-async function addImageBlob(blob, name) {
-  const id = uid();
-  const blobId = `asset-${id}`;
-  await putBlob(blobId, blob);
-  const url = URL.createObjectURL(blob);
-  objectUrls.set(id, url);
-  const scene = defaultScene(name, url, "upload", blobId);
-  scene.id = id;
-  state.scenes.push(scene);
-  state.selectedId = scene.id;
-  state.playheadMs = sceneStartMs(scene.id);
-  await loadImage(url);
-  await syncUi();
-}
-
-async function handleFiles(files) {
-  const supported = [...files].filter((file) => file.type.startsWith("image/"));
-  if (!supported.length) {
-    toast("PNG, JPG, WebP 같은 이미지 파일을 선택해 주세요.", "error");
-    return;
-  }
-  try {
-    for (const file of supported) {
-      await addImageBlob(file, file.name.replace(/\.[^.]+$/, ""));
-    }
-    toast(`${supported.length}개 장면을 추가했습니다.`, "success");
-  } catch (error) {
-    console.error(error);
-    toast("이미지를 저장하지 못했습니다. 브라우저 저장 공간을 확인해 주세요.", "error");
-  }
-}
-
-async function captureScreenFrame() {
-  if (!navigator.mediaDevices?.getDisplayMedia) {
-    toast("이 브라우저는 화면 캡처를 지원하지 않습니다. 최신 Chrome 또는 Edge를 사용해 주세요.", "error");
-    return;
-  }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 30, max: 30 } },
-      audio: false,
-    });
-    const video = document.createElement("video");
-    video.srcObject = stream;
-    video.muted = true;
-    video.playsInline = true;
-    await video.play();
-    await new Promise((resolve) => {
-      if (video.readyState >= 2) resolve();
-      else video.addEventListener("loadeddata", resolve, { once: true });
-    });
-
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
-    const temp = document.createElement("canvas");
-    temp.width = width;
-    temp.height = height;
-    const tempCtx = temp.getContext("2d");
-    tempCtx.drawImage(video, 0, 0, width, height);
-    const blob = await new Promise((resolve) => temp.toBlob(resolve, "image/png", 1));
-    if (!blob) throw new Error("capture failed");
-    await addImageBlob(blob, `화면 캡처 ${state.scenes.length + 1}`);
-    toast("선택한 화면의 현재 프레임을 장면으로 추가했습니다.", "success");
-  } catch (error) {
-    if (error?.name !== "NotAllowedError") console.error(error);
-    toast(error?.name === "NotAllowedError" ? "화면 공유가 취소되었습니다." : "화면을 캡처하지 못했습니다.", error?.name === "NotAllowedError" ? "info" : "error");
-  } finally {
-    stream?.getTracks().forEach((track) => track.stop());
-  }
-}
-
-async function duplicateSelectedScene() {
-  const scene = getSelectedScene();
+function renderInspector() {
+  const scene = selectedScene(); const has=Boolean(scene);
+  $('#inspectorContent').hidden=!has; $('#inspectorEmpty').hidden=has;
   if (!scene) return;
-  let clone;
-  if (scene.sourceType === "upload" && scene.blobId) {
-    const blob = await getBlob(scene.blobId);
-    if (!blob) {
-      toast("원본 이미지를 찾지 못해 복제할 수 없습니다.", "error");
-      return;
+  $('#sceneNameInput').value=scene.name; $('#durationInput').value=scene.duration; $('#transitionSelect').value=scene.transition;
+  $('#motionPresetSelect').value=scene.motionPreset || 'custom';
+  const pairs=[['startZoom',scene.startZoom,'%'],['endZoom',scene.endZoom,'%'],['startX',scene.startX,'%'],['startY',scene.startY,'%'],['endX',scene.endX,'%'],['endY',scene.endY,'%'],['cursorX',scene.cursorX,'%'],['cursorY',scene.cursorY,'%']];
+  pairs.forEach(([key,val,suffix])=>{ const input=$(`#${key}Input`), output=$(`#${key}Output`); if(input)input.value=val; if(output)output.textContent=`${val}${suffix}`; });
+  $('#cursorEnabledInput').checked=Boolean(scene.cursorEnabled); $('#cursorControls').style.opacity=scene.cursorEnabled?'1':'.45';
+}
+
+function renderSound() {
+  $('#soundPresetSelect').value=state.audio.preset;
+  $('#volumeInput').value=state.audio.volume; $('#volumeOutput').textContent=`${state.audio.volume}%`; $('#fadeAudioInput').checked=state.audio.fade;
+  const preset=soundPresets.find(s=>s.id===state.audio.preset);
+  $('#audioHelper').textContent=state.audio.preset==='custom' ? (state.audio.name ? `사용 중: ${state.audio.name}` : '오디오 파일을 업로드해 주세요.') : (preset?.description || '');
+}
+
+function renderMeta() {
+  const duration=totalDuration(); $('#sceneSummary').textContent=`${state.scenes.length} scenes`; $('#durationSummary').textContent=`${duration.toFixed(1)} sec`; $('#sceneCountBadge').textContent=state.scenes.length;
+  $('#timeTotal').textContent=formatTime(duration); $('#timeCurrent').textContent=formatTime(currentTime);
+  $('#seekInput').max=Math.max(duration,.001); $('#seekInput').value=clamp(currentTime,0,duration);
+  $('#aspectSelect').value=state.aspect; $('#frameStyleSelect').value=state.frameStyle; $('#resolutionSelect').value=state.resolution;
+}
+
+async function renderAll() {
+  if (state.scenes.length && !state.scenes.some(s=>s.id===selectedSceneId)) selectedSceneId=state.scenes[0].id;
+  renderMeta(); renderInspector(); renderSound(); await renderSceneCards(); await updatePreview();
+}
+
+function setupSelectOptions() {
+  $('#motionPresetSelect').innerHTML=Object.entries(motionPresets).map(([id,p])=>`<option value="${id}">${escapeHtml(p.label)}</option>`).join('');
+  $('#soundPresetSelect').innerHTML=soundPresets.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join('');
+  const templates=currentTemplates(); $('#captureTemplateSelect').innerHTML=templates.filter(t=>t.category!=='custom').map(t=>`<option value="${t.id}" ${t.id==='web-story'?'selected':''}>${escapeHtml(t.title)}</option>`).join('');
+}
+
+function renderTemplateFilters() {
+  $('#templateFilters').innerHTML='';
+  templateCategories.forEach(([id,label])=>{ const b=document.createElement('button'); b.type='button'; b.className=`template-filter ${templateFilter===id?'active':''}`; b.textContent=label; b.addEventListener('click',()=>{templateFilter=id; renderTemplates(); renderTemplateFilters();}); $('#templateFilters').append(b); });
+}
+
+function renderTemplates() {
+  const grid=$('#templateGrid'); grid.innerHTML='';
+  const templates=currentTemplates().filter(t=>templateFilter==='all'||t.category===templateFilter);
+  templates.forEach(template=>{
+    const card=document.createElement('article'); card.className='template-card'; card.dataset.motion=template.motion || 'zoom';
+    const isCustom=String(template.id).startsWith('custom-');
+    card.innerHTML=`${isCustom?'<span class="template-custom-badge">Saved</span>':''}<div class="template-visual"><i></i></div><div class="template-meta"><span>${escapeHtml(template.category)}</span><span>${escapeHtml(template.durationLabel||`${template.sequence?.reduce((a,s)=>a+Number(s.duration||0),0).toFixed(1)} sec`)}</span></div><h3>${escapeHtml(template.title)}</h3><p>${escapeHtml(template.description||'저장한 프로젝트 연출 설정입니다.')}</p><div class="template-actions"></div>`;
+    const actions=card.querySelector('.template-actions');
+    const apply=document.createElement('button'); apply.type='button'; apply.textContent='적용'; apply.addEventListener('click',()=>applyTemplate(template)); actions.append(apply);
+    if (isCustom) {
+      const update=document.createElement('button'); update.type='button'; update.textContent='현재 설정으로 갱신'; update.addEventListener('click',()=>updateCustomTemplate(template.id)); actions.append(update);
+      const download=document.createElement('button'); download.type='button'; download.textContent='JSON'; download.addEventListener('click',()=>downloadJson(template,`${safeFileName(template.title)}.motionframe-template.json`)); actions.append(download);
+      const del=document.createElement('button'); del.type='button'; del.textContent='삭제'; del.addEventListener('click',()=>deleteCustomTemplate(template.id)); actions.append(del);
+    } else {
+      const clone=document.createElement('button'); clone.type='button'; clone.textContent='내 템플릿으로 복제'; clone.addEventListener('click',()=>cloneBuiltinTemplate(template)); actions.append(clone);
     }
-    const id = uid();
-    const blobId = `asset-${id}`;
-    await putBlob(blobId, blob);
-    const url = URL.createObjectURL(blob);
-    objectUrls.set(id, url);
-    clone = { ...scene, id, blobId, source: url, name: `${scene.name} 복사본` };
-  } else {
-    clone = { ...scene, id: uid(), name: `${scene.name} 복사본` };
+    grid.append(card);
+  });
+}
+
+function templateSequenceFromState() {
+  return state.scenes.map(scene=>({ motion: scene.motionPreset || 'custom', duration:Number(scene.duration), transition:scene.transition, startZoom:scene.startZoom,endZoom:scene.endZoom,startX:scene.startX,startY:scene.startY,endX:scene.endX,endY:scene.endY,cursorEnabled:scene.cursorEnabled,cursorX:scene.cursorX,cursorY:scene.cursorY }));
+}
+
+function cloneBuiltinTemplate(template) {
+  const customs=loadCustomTemplates(); customs.unshift({ ...structuredClone(template), id:createId('custom'), category:'custom', title:`${template.title} Copy`, description:'기본 템플릿을 복제해 수정할 수 있는 사용자 템플릿입니다.' }); storeCustomTemplates(customs); templateFilter='custom'; setupSelectOptions(); renderTemplateFilters(); renderTemplates(); toast('내 템플릿으로 복제했습니다.');
+}
+
+function updateCustomTemplate(id) {
+  const customs=loadCustomTemplates(); const index=customs.findIndex(t=>t.id===id); if(index<0)return;
+  customs[index]={ ...customs[index], sequence:templateSequenceFromState(), aspect:state.aspect, frameStyle:state.frameStyle, audioPreset:state.audio.preset, durationLabel:`${totalDuration().toFixed(1)} sec` };
+  storeCustomTemplates(customs); renderTemplates(); toast('현재 편집 상태로 템플릿을 갱신했습니다.');
+}
+
+function deleteCustomTemplate(id) {
+  const customs=loadCustomTemplates().filter(t=>t.id!==id); storeCustomTemplates(customs); setupSelectOptions(); renderTemplates(); toast('사용자 템플릿을 삭제했습니다.');
+}
+
+function applyTemplate(template) {
+  if (!state.scenes.length) { toast('먼저 URL이나 이미지를 장면으로 추가해 주세요.','error'); return; }
+  const sequence=template.sequence?.length?template.sequence:[{motion:'overview',duration:2.4,transition:'crossfade'}];
+  const originals=[...state.scenes]; const targetCount=Math.max(originals.length,sequence.length); const next=[];
+  for(let i=0;i<targetCount;i+=1){
+    const source=structuredClone(originals[Math.min(i,originals.length-1)]); source.id=createId('scene');
+    const spec=sequence[i%sequence.length];
+    next.push(hydrateMotion(source,spec.motion || 'overview',{ ...spec, id:source.id, name: originals.length===1 ? `${originals[0].name} · ${i+1}` : source.name }));
   }
-  const index = state.scenes.findIndex((item) => item.id === scene.id);
-  state.scenes.splice(index + 1, 0, clone);
-  state.selectedId = clone.id;
-  state.playheadMs = sceneStartMs(clone.id);
-  await syncUi();
-  toast("장면을 복제했습니다.", "success");
+  state.scenes=next; state.aspect=template.aspect||state.aspect; state.frameStyle=template.frameStyle||state.frameStyle; if(template.audioPreset)state.audio.preset=template.audioPreset;
+  selectedSceneId=state.scenes[0]?.id||null; currentTime=0; saveState(); renderAll(); toast(`“${template.title}” 템플릿을 적용했습니다.`); location.hash='studio';
+}
+
+function saveCurrentTemplate(name,category='custom') {
+  const customs=loadCustomTemplates();
+  customs.unshift({ id:createId('custom'), title:name, category, motion:'zoom', description:'현재 프로젝트에서 저장한 사용자 연출 템플릿.', durationLabel:`${totalDuration().toFixed(1)} sec`, aspect:state.aspect, frameStyle:state.frameStyle, audioPreset:state.audio.preset, sequence:templateSequenceFromState() });
+  storeCustomTemplates(customs); setupSelectOptions(); templateFilter='custom'; renderTemplateFilters(); renderTemplates(); toast('현재 연출을 내 템플릿으로 저장했습니다.');
+}
+
+async function fetchUrlCapture(url, mode, viewport) {
+  const [width,height]=viewport.split('x').map(Number);
+  const params=new URLSearchParams({ url, screenshot:'true', meta:'false', embed:'screenshot.url', 'viewport.width':String(width), 'viewport.height':String(height) });
+  if(mode==='full')params.set('screenshot.fullPage','true');
+  if(width<=430){params.set('viewport.isMobile','true');params.set('viewport.hasTouch','true');}
+  const response=await fetch(`${API_ENDPOINT}?${params.toString()}`, { mode:'cors' });
+  if(!response.ok){ const detail=await response.text().catch(()=> ''); throw new Error(`URL 캡처 실패 (${response.status})${detail?`: ${detail.slice(0,120)}`:''}`); }
+  const blob=await response.blob();
+  if(!blob.type.startsWith('image/'))throw new Error('캡처 서비스가 이미지 대신 다른 응답을 반환했습니다.');
+  return blob;
+}
+
+async function makeImageSceneFromBlob(blob,{name='캡처 장면',sourceType='upload',sourceUrl=''}={}) {
+  const key=createId('asset'); await putAsset(key,blob);
+  const scene=baseScene({ name, sourceType, sourceUrl, assetKey:key, imageUrl:'', motionPreset:'overview' });
+  await imageForScene(scene);
+  return scene;
+}
+
+async function makeVideoSceneFromBlob(blob,{name='영상 클립'}={}) {
+  const key=createId('asset'); await putAsset(key,blob);
+  const scene=baseScene({ name, sourceType:'video', assetKey:key, imageUrl:'', sourceUrl:'', motionPreset:'calmFloat', duration:4 });
+  const video=await videoForScene(scene);
+  scene.mediaDuration = Number.isFinite(video.duration) ? video.duration : 4;
+  scene.duration = clamp(scene.mediaDuration, .8, 30);
+  video.currentTime = Math.min(.15, scene.mediaDuration || 0);
+  await new Promise(resolve => { const done=()=>resolve(); video.addEventListener('seeked',done,{once:true}); setTimeout(done,180); });
+  const poster=document.createElement('canvas'); const ratio=(video.videoWidth||16)/(video.videoHeight||9); poster.width=320; poster.height=Math.max(120,Math.round(320/ratio));
+  poster.getContext('2d').drawImage(video,0,0,poster.width,poster.height); scene.posterUrl=poster.toDataURL('image/jpeg',.72);
+  video.currentTime=0; return scene;
+}
+
+async function captureUrl(asStory) {
+  let urls; try{urls=parseUrlList($('#urlInput').value);}catch(err){toast(err.message,'error');$('#urlInput').focus();return;}
+  if(!asStory)urls=urls.slice(0,1);
+  const mode=$('#captureModeSelect').value, viewport=$('#viewportSelect').value;
+  setCaptureStatus('사이트를 렌더링하는 중', `${urls.length}개 URL · ${mode==='full'?'전체 페이지':'첫 화면'} 캡처`, 'loading');
+  $('#urlStoryButton').disabled=true; $('#urlSingleButton').disabled=true;
+  try{
+    const bases=[];
+    for(let i=0;i<urls.length;i+=1){
+      const url=urls[i]; setCaptureStatus(`URL 캡처 중 ${i+1}/${urls.length}`, new URL(url).hostname, 'loading');
+      const blob=await fetchUrlCapture(url,mode,viewport);
+      bases.push(await makeImageSceneFromBlob(blob,{name:new URL(url).hostname,sourceType:'url',sourceUrl:url}));
+    }
+    const isDemo=state.scenes.length && state.scenes.every(s=>s.sourceType==='demo');
+    if(asStory){
+      const template=currentTemplates().find(t=>t.id===$('#captureTemplateSelect').value)||builtinTemplates[0];
+      const old=isDemo?[]:[...state.scenes]; state.scenes=bases;
+      applyTemplate(template);
+      if(old.length){state.scenes=[...old,...state.scenes];selectedSceneId=state.scenes[old.length]?.id||state.scenes[0]?.id;saveState();await renderAll();}
+      setCaptureStatus('URL 쇼릴 생성 완료', `${urls.length}개 URL · ${template.title} · ${state.scenes.length}개 장면`, '');
+    } else {
+      if(isDemo)state.scenes=[]; state.scenes.push(...bases); selectedSceneId=bases[0].id; currentTime=Math.max(0,totalDuration()-bases[0].duration); saveState(); await renderAll(); setCaptureStatus('URL 캡처 완료','새 장면을 편집기에 추가했습니다.',''); location.hash='studio';
+    }
+  }catch(err){console.error(err);setCaptureStatus('URL 캡처에 실패했습니다',err.message,'error');toast(err.message,'error');}
+  finally{$('#urlStoryButton').disabled=false;$('#urlSingleButton').disabled=false;}
+}
+
+
+async function handleMediaFiles(files) {
+  const list=[...files].filter(file=>file.type.startsWith('image/')||file.type.startsWith('video/'));
+  if(!list.length){toast('지원하는 이미지 또는 영상 파일이 없습니다.','error');return;}
+  const isDemo=state.scenes.length&&state.scenes.every(s=>s.sourceType==='demo'); if(isDemo)state.scenes=[];
+  for(const file of list){
+    let scene;
+    if(file.type.startsWith('video/')) scene=await makeVideoSceneFromBlob(file,{name:file.name.replace(/\.[^.]+$/,'')});
+    else scene=await makeImageSceneFromBlob(file,{name:file.name.replace(/\.[^.]+$/,''),sourceType:'upload'});
+    state.scenes.push(scene); selectedSceneId=scene.id;
+  }
+  saveState(); await renderAll(); toast(`${list.length}개 미디어를 추가했습니다.`); location.hash='studio';
+}
+
+
+async function captureScreen() {
+  if(!navigator.mediaDevices?.getDisplayMedia){toast('이 브라우저에서는 화면 캡처를 지원하지 않습니다.','error');return;}
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});
+    const video=document.createElement('video'); video.srcObject=stream; video.muted=true; await video.play();
+    await new Promise(resolve=>setTimeout(resolve,180));
+    const shot=document.createElement('canvas'); shot.width=video.videoWidth; shot.height=video.videoHeight; shot.getContext('2d').drawImage(video,0,0);
+    const blob=await new Promise(resolve=>shot.toBlob(resolve,'image/png',.94));
+    const scene=await makeImageSceneFromBlob(blob,{name:`화면 캡처 ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`,sourceType:'capture'});
+    if(state.scenes.length&&state.scenes.every(s=>s.sourceType==='demo'))state.scenes=[]; state.scenes.push(scene); selectedSceneId=scene.id; saveState(); await renderAll(); toast('현재 화면을 장면으로 추가했습니다.'); location.hash='studio';
+  }catch(err){ if(err?.name!=='NotAllowedError')toast(`화면 캡처 실패: ${err.message}`,'error'); }
+  finally{stream?.getTracks().forEach(t=>t.stop());}
+}
+
+async function recordScreenClip() {
+  const button=$('#screenRecordButton');
+  if(screenRecording){
+    try{screenRecording.recorder.stop();}catch{} screenRecording.stream.getTracks().forEach(t=>t.stop()); return;
+  }
+  if(!navigator.mediaDevices?.getDisplayMedia||!window.MediaRecorder){toast('이 브라우저에서는 화면 녹화를 지원하지 않습니다.','error');return;}
+  try{
+    const stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:false});
+    const mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(t=>MediaRecorder.isTypeSupported(t))||'';
+    const recorder=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:5_000_000}:undefined); const chunks=[];
+    recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};
+    recorder.onstop=async()=>{
+      clearTimeout(screenRecording?.timer); button.textContent='화면 녹화 클립'; button.disabled=false;
+      const blob=new Blob(chunks,{type:mime||'video/webm'}); screenRecording=null;
+      if(!blob.size){toast('녹화된 데이터가 없습니다.','error');return;}
+      try{const scene=await makeVideoSceneFromBlob(blob,{name:`화면 녹화 ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}`});if(state.scenes.length&&state.scenes.every(s=>s.sourceType==='demo'))state.scenes=[];state.scenes.push(scene);selectedSceneId=scene.id;saveState();await renderAll();toast('화면 녹화 클립을 장면으로 추가했습니다.');location.hash='studio';}catch(err){toast(`녹화 클립 처리 실패: ${err.message}`,'error');}
+    };
+    stream.getVideoTracks()[0]?.addEventListener('ended',()=>{if(recorder.state!=='inactive')recorder.stop();},{once:true});
+    recorder.start(250); screenRecording={stream,recorder,timer:setTimeout(()=>{if(recorder.state!=='inactive'){recorder.stop();stream.getTracks().forEach(t=>t.stop());}},30000)}; button.textContent='녹화 종료'; toast('화면 녹화를 시작했습니다. 최대 30초 후 자동 종료됩니다.');
+  }catch(err){if(err?.name!=='NotAllowedError')toast(`화면 녹화 실패: ${err.message}`,'error');screenRecording=null;button.textContent='화면 녹화 클립';}
+}
+
+function updateSelectedScene(patch, render=true) {
+  const scene=selectedScene(); if(!scene)return; Object.assign(scene,patch); saveState(); if(render)renderAll();
+}
+
+function duplicateSelectedScene() {
+  const scene=selectedScene(); if(!scene)return; const idx=state.scenes.findIndex(s=>s.id===scene.id); const copy={...structuredClone(scene),id:createId('scene'),name:`${scene.name} 복사`}; state.scenes.splice(idx+1,0,copy); selectedSceneId=copy.id; saveState(); renderAll(); toast('장면을 복제했습니다.');
 }
 
 async function deleteSelectedScene() {
-  const scene = getSelectedScene();
-  if (!scene) return;
-  const index = state.scenes.findIndex((item) => item.id === scene.id);
-  state.scenes.splice(index, 1);
-  if (scene.sourceType === "upload") {
-    await deleteBlob(scene.blobId).catch(console.warn);
-    const objectUrl = objectUrls.get(scene.id);
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    objectUrls.delete(scene.id);
+  const scene=selectedScene(); if(!scene)return; const idx=state.scenes.findIndex(s=>s.id===scene.id); state.scenes.splice(idx,1);
+  if(scene.assetKey && !state.scenes.some(s=>s.assetKey===scene.assetKey))await deleteAsset(scene.assetKey).catch(()=>{});
+  selectedSceneId=state.scenes[Math.min(idx,state.scenes.length-1)]?.id||null; currentTime=clamp(currentTime,0,totalDuration()); saveState(); renderAll(); toast('장면을 삭제했습니다.');
+}
+
+async function audioBufferForContext(context) {
+  const duration=Math.max(totalDuration(),1);
+  if(state.audio.preset==='none')return null;
+  if(state.audio.preset==='custom'){
+    if(!state.audio.assetKey)return null;
+    if(customAudioBufferCache)return customAudioBufferCache;
+    const blob=await getAsset(state.audio.assetKey); if(!blob)return null;
+    const arr=await blob.arrayBuffer(); customAudioBufferCache=await context.decodeAudioData(arr.slice(0)); return customAudioBufferCache;
   }
-  const next = state.scenes[Math.min(index, state.scenes.length - 1)] ?? null;
-  state.selectedId = next?.id ?? null;
-  state.playheadMs = next ? sceneStartMs(next.id) : 0;
-  pause();
-  await syncUi();
-  toast("장면을 삭제했습니다.", "success");
+  return createProceduralBuffer(context,state.audio.preset,duration);
 }
 
-function moveScene(id, direction) {
-  const index = state.scenes.findIndex((scene) => scene.id === id);
-  const target = index + direction;
-  if (index < 0 || target < 0 || target >= state.scenes.length) return;
-  const [scene] = state.scenes.splice(index, 1);
-  state.scenes.splice(target, 0, scene);
-  state.playheadMs = sceneStartMs(state.selectedId);
-  syncUi();
+async function startPreviewAudio(offset=0, output=true) {
+  stopPreviewAudio();
+  if(state.audio.preset==='none')return null;
+  const context=new (window.AudioContext||window.webkitAudioContext)(); await context.resume();
+  const buffer=await audioBufferForContext(context); if(!buffer){context.close();return null;}
+  const source=context.createBufferSource(); source.buffer=buffer; source.loop=state.audio.preset==='custom'&&buffer.duration<Math.max(totalDuration(),1);
+  const gain=context.createGain(); applyFade(gain.gain,context,state.audio.volume/100,totalDuration(),state.audio.fade,offset); source.connect(gain); if(output)gain.connect(context.destination);
+  source.start(0,offset % buffer.duration);
+  previewAudio={context,source,gain}; return previewAudio;
 }
 
-function updateSelectedScene(patch, custom = true) {
-  const scene = getSelectedScene();
-  if (!scene) return;
-  Object.assign(scene, patch);
-  if (custom && !Object.prototype.hasOwnProperty.call(patch, "preset")) scene.preset = "custom";
-  pause();
-  saveProject();
-  renderSceneList();
-  renderTimeline();
-  updateInspector();
-  renderAtTime(state.playheadMs);
+function stopPreviewAudio(){ if(!previewAudio)return; try{previewAudio.source.stop();}catch{} try{previewAudio.context.close();}catch{} previewAudio=null; }
+
+async function togglePlay() {
+  if(!state.scenes.length)return;
+  if(playing){ pausePlayback(); return; }
+  if(currentTime>=totalDuration()-.02)currentTime=0;
+  playing=true; playStartStamp=performance.now()-currentTime*1000; $('#playButton .icon-play').hidden=true; $('#playButton .icon-pause').hidden=false;
+  try{await startPreviewAudio(currentTime,true);}catch(err){console.warn('audio preview',err);}
+  playbackLoop();
 }
 
-function updateResolutionButtons() {
-  const value = `${state.width}x${state.height}`;
-  dom.resolutionButtons.forEach((button) => button.classList.toggle("active", button.dataset.resolution === value));
-  dom.canvas.width = state.width;
-  dom.canvas.height = state.height;
+function pausePlayback(){ playing=false; cancelAnimationFrame(renderRaf); stopPreviewAudio(); videoCache.forEach(async p=>{try{(await p).pause();}catch{}}); $('#playButton .icon-play').hidden=false; $('#playButton .icon-pause').hidden=true; renderMeta(); }
+
+async function playbackLoop(){
+  if(!playing)return; currentTime=(performance.now()-playStartStamp)/1000; const total=totalDuration(); if(currentTime>=total){currentTime=total; await renderAt(currentTime); renderMeta(); pausePlayback(); return;} await renderAt(currentTime); renderMeta(); renderRaf=requestAnimationFrame(playbackLoop);
 }
 
-async function setResolution(value) {
-  const [width, height] = value.split("x").map(Number);
-  state.width = width;
-  state.height = height;
-  updateResolutionButtons();
-  saveProject();
-  await renderAtTime(state.playheadMs);
+async function previewSoundOnly(){
+  clearTimeout(soundPreviewTimer); stopPreviewAudio(); if(state.audio.preset==='none'){toast('사운드 없음이 선택되어 있습니다.');return;}
+  try{await startPreviewAudio(0,true); $('#soundPreviewButton').textContent='정지'; soundPreviewTimer=setTimeout(()=>{stopPreviewAudio();$('#soundPreviewButton').textContent='미리듣기';},Math.min(6000,totalDuration()*1000||6000));}catch(err){toast(`사운드 재생 실패: ${err.message}`,'error');}
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function handleAudioFile(file){
+  if(!file||!file.type.startsWith('audio/')){toast('오디오 파일을 선택해 주세요.','error');return;}
+  if(state.audio.assetKey)await deleteAsset(state.audio.assetKey).catch(()=>{});
+  const key=createId('audio'); await putAsset(key,file); state.audio={...state.audio,preset:'custom',assetKey:key,name:file.name}; customAudioBufferCache=null; saveState(); renderSound(); toast('오디오 파일을 프로젝트에 연결했습니다.');
 }
 
-async function exportWebM() {
-  if (state.exportRunning || !state.scenes.length) return;
-  const mimeType = getSupportedMimeType();
-  if (!mimeType || !dom.canvas.captureStream) {
-    toast("이 브라우저에서는 WebM 내보내기를 사용할 수 없습니다. 최신 Chrome 또는 Edge를 사용해 주세요.", "error");
-    return;
-  }
+function supportedMimeType(){ return ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(type=>MediaRecorder.isTypeSupported(type))||''; }
 
-  pause();
-  state.exportRunning = true;
-  dom.exportButton.disabled = true;
-  dom.uploadButton.disabled = true;
-  dom.captureButton.disabled = true;
-  dom.exportProgress.style.width = "0%";
-
-  const originalPlayhead = state.playheadMs;
-  const totalMs = totalDurationMs();
-  const stream = dom.canvas.captureStream(FPS);
-  const chunks = [];
-  let recorder;
-
-  try {
-    recorder = new MediaRecorder(stream, {
-      mimeType,
-      videoBitsPerSecond: state.width >= 1920 ? 10_000_000 : 6_000_000,
+async function exportWebM(){
+  if(exportInProgress)return; if(!state.scenes.length){toast('내보낼 장면이 없습니다.','error');return;} if(!canvas.captureStream||!window.MediaRecorder){toast('이 브라우저는 WebM 렌더링을 지원하지 않습니다. Chrome/Edge 최신 버전을 권장합니다.','error');return;}
+  exportInProgress=true; pausePlayback(); currentTime=0; syncCanvasSize(); $('#exportButton').disabled=true; $('#exportStatus').textContent='렌더링 준비 중…'; $('#exportProgress').style.width='0%';
+  let audioContext=null, audioSource=null;
+  try{
+    const videoStream=canvas.captureStream(30); const tracks=[...videoStream.getVideoTracks()];
+    if(state.audio.preset!=='none'){
+      audioContext=new (window.AudioContext||window.webkitAudioContext)(); await audioContext.resume(); const buffer=await audioBufferForContext(audioContext);
+      if(buffer){ const dest=audioContext.createMediaStreamDestination(); const gain=audioContext.createGain(); applyFade(gain.gain,audioContext,state.audio.volume/100,totalDuration(),state.audio.fade,0); audioSource=audioContext.createBufferSource(); audioSource.buffer=buffer; audioSource.loop=state.audio.preset==='custom'&&buffer.duration<totalDuration(); audioSource.connect(gain).connect(dest); tracks.push(...dest.stream.getAudioTracks()); }
+    }
+    const stream=new MediaStream(tracks); const mimeType=supportedMimeType(); const recorder=new MediaRecorder(stream,mimeType?{mimeType,videoBitsPerSecond:state.resolution==='1920x1080'?9_000_000:5_000_000}:undefined); const chunks=[];
+    recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);}; const stopped=new Promise(resolve=>recorder.addEventListener('stop',resolve,{once:true})); recorder.start(250); audioSource?.start(0);
+    const total=totalDuration(); const start=performance.now();
+    await new Promise((resolve,reject)=>{
+      const frame=async()=>{ try{ const t=Math.min((performance.now()-start)/1000,total); currentTime=t; await renderAt(t); $('#exportProgress').style.width=`${total?Math.round(t/total*100):100}%`; $('#exportStatus').textContent=`렌더링 중 · ${Math.round(total?t/total*100:100)}%`; if(t>=total){resolve();return;} requestAnimationFrame(frame);}catch(err){reject(err);} }; frame();
     });
-    const stopped = new Promise((resolve, reject) => {
-      recorder.onstop = resolve;
-      recorder.onerror = () => reject(recorder.error ?? new Error("WebM 인코딩 오류"));
-    });
-    recorder.ondataavailable = (event) => {
-      if (event.data?.size) chunks.push(event.data);
-    };
-
-    recorder.start(1000);
-    const frameMs = 1000 / FPS;
-    const totalFrames = Math.max(1, Math.ceil(totalMs / frameMs));
-    const exportStartedAt = performance.now();
-
-    for (let frame = 0; frame < totalFrames; frame += 1) {
-      const targetMs = Math.min(totalMs - .001, frame * frameMs);
-      await renderAtTime(targetMs);
-      const progress = (frame + 1) / totalFrames;
-      dom.exportProgress.style.width = `${Math.round(progress * 100)}%`;
-      dom.exportStatus.textContent = `렌더링 중 ${Math.round(progress * 100)}% · 탭을 닫지 마세요`;
-
-      const expectedElapsed = (frame + 1) * frameMs;
-      const actualElapsed = performance.now() - exportStartedAt;
-      const wait = expectedElapsed - actualElapsed;
-      if (wait > 0) await sleep(wait);
-      else await sleep(0);
-    }
-
-    await sleep(120);
-    recorder.stop();
-    await stopped;
-    const blob = new Blob(chunks, { type: mimeType });
-    if (!blob.size) throw new Error("empty webm");
-    const downloadUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    anchor.download = `motionframe-${state.width}x${state.height}-${stamp}.webm`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(downloadUrl), 10_000);
-    dom.exportStatus.textContent = `완료 · ${(blob.size / 1024 / 1024).toFixed(1)}MB`;
-    toast("WebM 렌더링이 완료되어 다운로드를 시작했습니다.", "success");
-  } catch (error) {
-    console.error(error);
-    try {
-      if (recorder?.state === "recording") recorder.stop();
-    } catch {}
-    dom.exportStatus.textContent = "내보내기 실패";
-    toast("WebM을 만들지 못했습니다. 브라우저 지원 여부와 메모리를 확인해 주세요.", "error");
-  } finally {
-    stream.getTracks().forEach((track) => track.stop());
-    state.exportRunning = false;
-    dom.exportButton.disabled = false;
-    dom.uploadButton.disabled = false;
-    dom.captureButton.disabled = false;
-    state.playheadMs = originalPlayhead;
-    await renderAtTime(state.playheadMs);
-    updateTransport();
-  }
+    recorder.stop(); await stopped; audioSource?.stop(); const blob=new Blob(chunks,{type:mimeType||'video/webm'}); const link=document.createElement('a'); const url=URL.createObjectURL(blob); link.href=url; link.download=`motionframe-${new Date().toISOString().slice(0,10)}.webm`; document.body.append(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),10000); $('#exportStatus').textContent=`완료 · ${(blob.size/1024/1024).toFixed(1)} MB`; $('#exportProgress').style.width='100%'; toast('WebM 영상과 사운드 렌더링이 완료되었습니다.');
+  }catch(err){console.error(err);$('#exportStatus').textContent='렌더링 실패';toast(`내보내기 실패: ${err.message}`,'error');}
+  finally{try{audioContext?.close();}catch{} exportInProgress=false; $('#exportButton').disabled=false; currentTime=0; renderAll();}
 }
 
-async function resetProject() {
-  pause();
-  for (const url of objectUrls.values()) URL.revokeObjectURL(url);
-  objectUrls.clear();
-  imageCache.clear();
-  await clearBlobs().catch(console.warn);
-  localStorage.removeItem(STORAGE_KEY);
-  state.scenes = createDemoScenes();
-  state.selectedId = state.scenes[0].id;
-  state.playheadMs = 0;
-  state.width = 1280;
-  state.height = 720;
-  await preloadScenes();
-  await syncUi();
-  toast("기본 데모 프로젝트로 초기화했습니다.", "success");
+function safeFileName(name){return String(name||'motionframe').replace(/[^a-z0-9가-힣_-]+/gi,'-').replace(/^-+|-+$/g,'')||'motionframe';}
+function downloadJson(data,name){const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);}
+function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.readAsDataURL(blob);});}
+function dataUrlToBlob(dataUrl){const [meta,data]=dataUrl.split(',');const type=(meta.match(/data:([^;]+)/)||[])[1]||'application/octet-stream';const binary=atob(data);const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return new Blob([bytes],{type});}
+
+async function exportProject(){
+  const keys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; const assets={};
+  for(const key of keys){const blob=await getAsset(key);if(blob)assets[key]={type:blob.type,data:await blobToDataUrl(blob)};}
+  downloadJson({kind:'motionframe-project',version:2,createdAt:new Date().toISOString(),project:state,assets,customTemplates:loadCustomTemplates()},`motionframe-project-${new Date().toISOString().slice(0,10)}.json`); toast('프로젝트 백업 파일을 만들었습니다.');
 }
 
-function openResetDialog() {
-  if (typeof dom.resetDialog.showModal === "function") dom.resetDialog.showModal();
-  else if (window.confirm("프로젝트를 초기화하고 기본 데모로 돌아갈까요?")) resetProject();
+async function importProjectFile(file){
+  try{const data=JSON.parse(await file.text());if(data.kind!=='motionframe-project'||!data.project)throw new Error('MotionFrame 프로젝트 파일이 아닙니다.');for(const [key,item] of Object.entries(data.assets||{})){await putAsset(key,dataUrlToBlob(item.data));}state=sanitizeProject(data.project);if(Array.isArray(data.customTemplates))storeCustomTemplates(data.customTemplates);selectedSceneId=state.scenes[0]?.id||null;currentTime=0;saveState();setupSelectOptions();renderTemplates();renderTemplateFilters();await renderAll();toast('프로젝트를 불러왔습니다.');}catch(err){toast(`프로젝트 불러오기 실패: ${err.message}`,'error');}
 }
 
-function bindEvents() {
-  [dom.uploadButton, dom.heroUploadButton].forEach((button) => button.addEventListener("click", () => dom.fileInput.click()));
-  [dom.captureButton, dom.heroCaptureButton].forEach((button) => button.addEventListener("click", captureScreenFrame));
-  dom.fileInput.addEventListener("change", async () => {
-    await handleFiles(dom.fileInput.files);
-    dom.fileInput.value = "";
-  });
-
-  dom.sceneList.addEventListener("click", (event) => {
-    const item = event.target.closest(".scene-item");
-    if (!item) return;
-    const actionButton = event.target.closest("[data-action]");
-    const action = actionButton?.dataset.action ?? "select";
-    if (action === "up") moveScene(item.dataset.sceneId, -1);
-    else if (action === "down") moveScene(item.dataset.sceneId, 1);
-    else selectScene(item.dataset.sceneId);
-  });
-
-  dom.timeline.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-scene-id]");
-    if (button) selectScene(button.dataset.sceneId);
-  });
-
-  dom.playButton.addEventListener("click", () => state.playing ? pause() : play());
-  dom.seekInput.addEventListener("input", async () => {
-    pause();
-    state.playheadMs = Number(dom.seekInput.value);
-    updateTransport();
-    await renderAtTime(state.playheadMs);
-  });
-
-  dom.sceneNameInput.addEventListener("input", () => updateSelectedScene({ name: dom.sceneNameInput.value || "이름 없는 장면" }, false));
-  dom.durationInput.addEventListener("change", () => {
-    const value = clamp(Number(dom.durationInput.value) || 3, 1, 12);
-    updateSelectedScene({ duration: value }, false);
-    state.playheadMs = sceneStartMs(state.selectedId);
-    updateTransport();
-  });
-  dom.presetSelect.addEventListener("change", () => {
-    const scene = getSelectedScene();
-    if (!scene) return;
-    applyPreset(scene, dom.presetSelect.value);
-    state.playheadMs = sceneStartMs(scene.id);
-    pause();
-    syncUi();
-  });
-  dom.startZoomInput.addEventListener("input", () => updateSelectedScene({ startZoom: Number(dom.startZoomInput.value) }));
-  dom.endZoomInput.addEventListener("input", () => updateSelectedScene({ endZoom: Number(dom.endZoomInput.value) }));
-  dom.endXInput.addEventListener("input", () => updateSelectedScene({ endX: Number(dom.endXInput.value) }));
-  dom.endYInput.addEventListener("input", () => updateSelectedScene({ endY: Number(dom.endYInput.value) }));
-  dom.cursorEnabledInput.addEventListener("change", () => updateSelectedScene({ cursorEnabled: dom.cursorEnabledInput.checked }, false));
-  dom.cursorXInput.addEventListener("input", () => updateSelectedScene({ cursorX: Number(dom.cursorXInput.value) }, false));
-  dom.cursorYInput.addEventListener("input", () => updateSelectedScene({ cursorY: Number(dom.cursorYInput.value) }, false));
-  dom.duplicateButton.addEventListener("click", duplicateSelectedScene);
-  dom.deleteButton.addEventListener("click", deleteSelectedScene);
-  dom.exportButton.addEventListener("click", exportWebM);
-
-  dom.resolutionButtons.forEach((button) => button.addEventListener("click", () => setResolution(button.dataset.resolution)));
-
-  dom.resetProjectButton.addEventListener("click", openResetDialog);
-  dom.mobileResetProjectButton.addEventListener("click", openResetDialog);
-  dom.resetDialog.addEventListener("close", () => {
-    if (dom.resetDialog.returnValue === "confirm") resetProject();
-  });
-
-  dom.mobileMenuButton.addEventListener("click", () => {
-    const open = dom.mobileMenuButton.getAttribute("aria-expanded") === "true";
-    dom.mobileMenuButton.setAttribute("aria-expanded", String(!open));
-    dom.mobileMenuButton.setAttribute("aria-label", open ? "메뉴 열기" : "메뉴 닫기");
-    dom.mobileNavigation.hidden = open;
-  });
-  dom.mobileNavigation.addEventListener("click", (event) => {
-    if (event.target.closest("a")) {
-      dom.mobileNavigation.hidden = true;
-      dom.mobileMenuButton.setAttribute("aria-expanded", "false");
-      dom.mobileMenuButton.setAttribute("aria-label", "메뉴 열기");
-    }
-  });
-  window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !dom.mobileNavigation.hidden) {
-      dom.mobileNavigation.hidden = true;
-      dom.mobileMenuButton.setAttribute("aria-expanded", "false");
-      dom.mobileMenuButton.setAttribute("aria-label", "메뉴 열기");
-      dom.mobileMenuButton.focus();
-    }
-  });
+async function importTemplateFile(file){
+  try{const data=JSON.parse(await file.text());const templates=Array.isArray(data)?data:[data];const valid=templates.filter(t=>t&&Array.isArray(t.sequence));if(!valid.length)throw new Error('유효한 템플릿이 없습니다.');const customs=loadCustomTemplates();valid.forEach(t=>customs.unshift({...t,id:createId('custom'),category:'custom'}));storeCustomTemplates(customs);setupSelectOptions();templateFilter='custom';renderTemplateFilters();renderTemplates();toast(`${valid.length}개 템플릿을 가져왔습니다.`);}catch(err){toast(`템플릿 가져오기 실패: ${err.message}`,'error');}
 }
 
-async function init() {
-  showSupportInfo();
-  bindEvents();
-  await restoreProject();
-  updateResolutionButtons();
-  await preloadScenes();
-  await syncUi();
-
-  if ("serviceWorker" in navigator && location.protocol === "https:") {
-    const swUrl = new URL("../service-worker.js", import.meta.url);
-    navigator.serviceWorker.register(swUrl).catch((error) => console.warn("Service worker registration failed", error));
-  }
+async function resetProject(){
+  pausePlayback(); const oldKeys=[...new Set([...state.scenes.map(s=>s.assetKey).filter(Boolean),state.audio.assetKey].filter(Boolean))]; for(const key of oldKeys)await deleteAsset(key).catch(()=>{}); state=demoProject();selectedSceneId=state.scenes[0].id;currentTime=0;customAudioBufferCache=null;saveState();await renderAll();toast('데모 프로젝트로 초기화했습니다.');
 }
 
-init().catch((error) => {
-  console.error(error);
-  toast("편집기를 초기화하지 못했습니다. 페이지를 새로고침해 주세요.", "error");
-});
+function bindInspector(){
+  $('#sceneNameInput').addEventListener('input',e=>updateSelectedScene({name:e.target.value},false)); $('#sceneNameInput').addEventListener('change',()=>renderAll());
+  $('#durationInput').addEventListener('change',e=>updateSelectedScene({duration:clamp(Number(e.target.value)||2.4,.8,15)})); $('#transitionSelect').addEventListener('change',e=>updateSelectedScene({transition:e.target.value}));
+  $('#motionPresetSelect').addEventListener('change',e=>{const scene=selectedScene();if(!scene)return;const next=hydrateMotion(scene,e.target.value,{motionPreset:e.target.value,id:scene.id,name:scene.name});Object.assign(scene,next);saveState();renderAll();});
+  ['startZoom','endZoom','startX','startY','endX','endY','cursorX','cursorY'].forEach(key=>{const input=$(`#${key}Input`);input.addEventListener('input',e=>{const scene=selectedScene();if(!scene)return;scene[key]=Number(e.target.value);scene.motionPreset='custom';const out=$(`#${key}Output`);if(out)out.textContent=`${e.target.value}%`;saveState();updatePreview();renderSceneCards();});});
+  $('#cursorEnabledInput').addEventListener('change',e=>updateSelectedScene({cursorEnabled:e.target.checked,motionPreset:'custom'}));
+}
+
+function bindEvents(){
+  $('#menuButton').addEventListener('click',()=>{const nav=$('#mobileNav');const open=nav.hidden;nav.hidden=!open;$('#menuButton').setAttribute('aria-expanded',String(open));});
+  $$('#mobileNav a').forEach(a=>a.addEventListener('click',()=>{$('#mobileNav').hidden=true;$('#menuButton').setAttribute('aria-expanded','false');}));
+  $('#urlStoryButton').addEventListener('click',()=>captureUrl(true)); $('#urlSingleButton').addEventListener('click',()=>captureUrl(false)); $('#urlInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();captureUrl(true);}});
+  $('#imageUploadButton').addEventListener('click',()=>$('#imageInput').click()); $('#imageInput').addEventListener('change',e=>{handleMediaFiles(e.target.files);e.target.value='';}); $('#screenCaptureButton').addEventListener('click',captureScreen); $('#screenRecordButton').addEventListener('click',recordScreenClip);
+  $('#saveTemplateButton').addEventListener('click',()=>{$('#templateNameInput').value='';$('#templateSaveDialog').showModal();setTimeout(()=>$('#templateNameInput').focus(),30);});
+  $('#templateSaveForm').addEventListener('submit',e=>{e.preventDefault();const name=$('#templateNameInput').value.trim();if(!name)return;saveCurrentTemplate(name,$('#templateCategoryInput').value);$('#templateSaveDialog').close();});
+  $('#importTemplateButton').addEventListener('click',()=>$('#templateFileInput').click()); $('#templateFileInput').addEventListener('change',e=>{if(e.target.files[0])importTemplateFile(e.target.files[0]);e.target.value='';});
+  $('#aspectSelect').addEventListener('change',e=>{state.aspect=e.target.value;saveState();renderAll();}); $('#frameStyleSelect').addEventListener('change',e=>{state.frameStyle=e.target.value;saveState();updatePreview();}); $('#resolutionSelect').addEventListener('change',e=>{state.resolution=e.target.value;saveState();renderAll();});
+  $('#duplicateSceneButton').addEventListener('click',duplicateSelectedScene); $('#deleteSceneButton').addEventListener('click',deleteSelectedScene);
+  $('#playButton').addEventListener('click',togglePlay); $('#seekInput').addEventListener('input',e=>{pausePlayback();currentTime=Number(e.target.value);renderMeta();updatePreview();});
+  $('#soundPresetSelect').addEventListener('change',e=>{stopPreviewAudio();state.audio.preset=e.target.value;saveState();renderSound();}); $('#volumeInput').addEventListener('input',e=>{state.audio.volume=Number(e.target.value);$('#volumeOutput').textContent=`${e.target.value}%`;saveState();}); $('#fadeAudioInput').addEventListener('change',e=>{state.audio.fade=e.target.checked;saveState();});
+  $('#soundPreviewButton').addEventListener('click',()=>{if(previewAudio){stopPreviewAudio();clearTimeout(soundPreviewTimer);$('#soundPreviewButton').textContent='미리듣기';}else previewSoundOnly();}); $('#audioUploadButton').addEventListener('click',()=>$('#audioInput').click()); $('#audioInput').addEventListener('change',e=>{if(e.target.files[0])handleAudioFile(e.target.files[0]);e.target.value='';});
+  $('#exportButton').addEventListener('click',exportWebM);
+  $('#projectExportButton').addEventListener('click',exportProject); $('#mobileProjectExportButton').addEventListener('click',exportProject); $('#projectImportButton').addEventListener('click',()=>$('#projectFileInput').click()); $('#projectFileInput').addEventListener('change',e=>{if(e.target.files[0])importProjectFile(e.target.files[0]);e.target.value='';});
+  $('#resetButton').addEventListener('click',()=>$('#resetDialog').showModal()); $('#confirmResetButton').addEventListener('click',()=>{setTimeout(resetProject,0);});
+  window.addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','SELECT','TEXTAREA','BUTTON'].includes(document.activeElement?.tagName)){e.preventDefault();togglePlay();}if(e.key==='Escape'&&!$('#mobileNav').hidden){$('#mobileNav').hidden=true;$('#menuButton').setAttribute('aria-expanded','false');}});
+  window.addEventListener('beforeunload',()=>{stopPreviewAudio();assetUrlCache.forEach(url=>URL.revokeObjectURL(url));});
+}
+
+function browserSupportCheck(){
+  const missing=[]; if(!('indexedDB'in window))missing.push('IndexedDB'); if(!window.MediaRecorder)missing.push('MediaRecorder'); if(!HTMLCanvasElement.prototype.captureStream)missing.push('Canvas captureStream');
+  if(missing.length)setCaptureStatus('일부 기능 제한',`${missing.join(', ')} 기능이 없습니다. 최신 Chrome/Edge를 권장합니다.`,'error');
+}
+
+async function init(){
+  state=loadState(); selectedSceneId=state.scenes[0]?.id||null; setupSelectOptions(); renderTemplateFilters(); renderTemplates(); bindInspector(); bindEvents(); browserSupportCheck(); await renderAll();
+}
+
+init().catch(err=>{console.error(err);toast(`초기화 실패: ${err.message}`,'error');});

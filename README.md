@@ -1,189 +1,264 @@
-# MotionFrame
+# MotionFrame Studio
 
-스크린샷이나 사용자가 직접 공유한 화면을 장면으로 만들고, 줌·팬·커서 이동을 연출해 **브라우저에서 바로 WebM 제품 쇼케이스 영상으로 렌더링하는 정적 웹앱**입니다.
+사이트 URL, 화면 녹화, 이미지/영상 클립을 **줌·팬·커서·전환·사운드가 있는 제품 쇼케이스 영상**으로 만드는 GitHub Pages용 정적 웹앱입니다.
 
-GitHub Pages를 최우선 배포 환경으로 설계했으며 별도의 서버, 데이터베이스, npm build가 필요하지 않습니다.
+서버 DB 없이 브라우저에서 편집하고, 프로젝트와 사용자 템플릿은 LocalStorage/IndexedDB에 저장하며, 최종 결과는 WebM으로 렌더링합니다.
 
 ## Preview
 
-첫 실행 시 세 개의 데모 장면이 로드되어 즉시 재생할 수 있습니다. 실제 이미지로 교체하면 장면마다 카메라 줌, 포커스 위치, 커서 이동과 클릭 효과를 조절할 수 있습니다.
+첫 화면에서 공개 URL을 바로 캡처하거나 로그인된 웹앱/데스크톱 프로그램을 화면 녹화로 가져올 수 있습니다. 이어서 연출 템플릿을 선택하고 타임라인에서 장면별 설정을 수정합니다.
 
 ## Features
 
-- PNG / JPG / WebP 등 이미지 다중 업로드
-- `getDisplayMedia` 기반 사용자 승인 화면 한 장 캡처
-- 장면 순서 변경 / 복제 / 삭제
-- 장면별 길이 설정
-- 중앙 줌인 / 줌아웃 / 좌우 이동 / 상하 이동 / 디테일 포커스 프리셋
-- 직접 줌 및 포커스 위치 조절
-- 커서 이동 + 클릭 링 연출
-- 전체 타임라인 재생 및 seek
-- 장면 사이 부드러운 cross-fade
-- 1280×720 / 1920×1080 출력
-- Canvas + MediaRecorder 기반 WebM 렌더링
-- 프로젝트 메타데이터 LocalStorage 자동 저장
-- 업로드 이미지 IndexedDB 저장
-- 모바일 Navigation
-- PWA manifest 및 간단한 offline cache
-- favicon / app icon / OG image / GitHub Social Preview
-- custom 404
-- GitHub Actions 자동 Pages 배포
-- 하위 경로 `https://USERNAME.github.io/REPOSITORY/` 대응
+### URL → 영상 시퀀스
+
+- 공개 웹사이트 URL 캡처
+- 여러 URL을 줄바꿈으로 입력해 페이지 전환 시퀀스 생성
+- 전체 페이지 캡처 또는 첫 화면 캡처
+- Desktop / Laptop / Tablet / Mobile viewport
+- 한 장의 full-page 캡처를 여러 카메라 장면으로 재사용
+
+URL 렌더링은 Microlink Screenshot API를 사용합니다. Microlink는 URL과 `screenshot` 옵션으로 headless browser 캡처를 제공하며 full-page와 viewport 옵션을 지원합니다.
+
+### 미디어 소스
+
+- PNG / JPG / WebP / GIF
+- MP4 / WebM 영상 클립
+- 브라우저 화면 한 장 캡처
+- 브라우저/프로그램 화면 녹화 클립
+
+로그인 세션이 필요한 SaaS나 데스크톱 프로그램은 URL API보다 화면 녹화 방식이 적합합니다.
+
+### Motion Template Library
+
+기본 제공 프로젝트 템플릿:
+
+- Website Story
+- Product Tour
+- Launch Cuts
+- Dashboard Scan
+- Cursor Flow
+- Calm Showcase
+- Mobile Spotlight
+- Feature Trio
+- Before / After
+- Quick Demo
+
+각 템플릿은 장면 개수, 줌, 포커스, 커서, 장면 길이, 전환, 사운드를 함께 구성합니다.
+
+### Custom Templates
+
+현재 편집 상태를 사용자 템플릿으로 저장할 수 있습니다.
+
+- LocalStorage 저장
+- 현재 프로젝트 설정으로 덮어쓰기
+- JSON 내보내기
+- JSON 가져오기
+- 삭제
+
+이미지는 템플릿에 포함하지 않아 다른 프로젝트에 쉽게 재사용할 수 있습니다.
+
+### Scene Editor
+
+- 장면 이름/길이
+- Crossfade / Zoom out / Slide / Cut
+- 시작/끝 줌
+- 시작/끝 X/Y 포커스
+- 커서 이동/클릭 효과
+- 장면 복제/삭제
+- 드래그 순서 변경
+- 16:9 / 9:16 / 1:1
+- Browser / Floating / None frame
+- 720p / 1080p
+
+### Sound
+
+내장 사운드는 별도 음원 파일이 아니라 Web Audio로 실시간 생성됩니다.
+
+- Soft Pulse
+- Air Pad
+- Focus Grid
+- Launch Beat
+- 무음
+- 사용자 오디오 파일
+- 볼륨
+- Fade in/out
+- 미리듣기
+
+### WebM Rendering
+
+최종 렌더링은 다음 브라우저 API를 사용합니다.
+
+```text
+Canvas
+  ↓ captureStream(30fps)
+Video MediaStream
+
+Web Audio
+  ↓ MediaStreamDestination
+Audio MediaStream
+
+Video + Audio
+  ↓ MediaRecorder
+WebM
+```
+
+서버로 영상을 업로드하지 않습니다.
 
 ## Architecture
 
 ```text
-Browser
-  ├─ Image upload
-  ├─ Screen capture permission
-  ├─ LocalStorage: scene metadata
-  ├─ IndexedDB: uploaded image blobs
-  ├─ Canvas 2D: camera / cursor rendering
-  └─ MediaRecorder: WebM export
-
 GitHub Pages
-  └─ Static HTML / CSS / JavaScript / SVG assets
+├── UI / Timeline / Canvas renderer
+├── URL Capture Client
+│   └── Microlink Screenshot API
+├── Local Persistence
+│   ├── LocalStorage: project metadata / templates
+│   └── IndexedDB: uploaded images / video / audio
+├── Web Audio: built-in soundtrack synthesis
+└── MediaRecorder: WebM export
 ```
 
-데이터를 외부 서버로 보내지 않습니다. 브라우저 저장 데이터는 사용자의 기기에만 존재합니다.
+## Tech Stack
+
+- HTML5
+- CSS3
+- Vanilla JavaScript ES Modules
+- Canvas 2D
+- Web Audio API
+- MediaRecorder
+- getDisplayMedia
+- IndexedDB
+- LocalStorage
+- GitHub Pages
+- GitHub Actions
+
+외부 UI framework와 npm dependency를 사용하지 않습니다.
 
 ## Project Structure
 
 ```text
 /
-├─ .github/
-│  └─ workflows/
-│     └─ deploy.yml
-├─ assets/
-│  ├─ app.js
-│  ├─ styles.css
-│  └─ demo/
-│     ├─ dashboard.svg
-│     ├─ detail.svg
-│     └─ report.svg
-├─ .nojekyll
-├─ 404.html
-├─ apple-touch-icon.png
-├─ favicon.svg
-├─ favicon-16x16.png
-├─ favicon-32x32.png
-├─ icon-192.png
-├─ icon-512.png
-├─ index.html
-├─ manifest.webmanifest
-├─ og-image.png
-├─ repo-social-preview.png
-├─ robots.txt
-├─ service-worker.js
-├─ sitemap.xml
-├─ START-HERE.md
-└─ README.md
+├── index.html
+├── 404.html
+├── favicon.svg
+├── favicon-16x16.png
+├── favicon-32x32.png
+├── apple-touch-icon.png
+├── icon-192.png
+├── icon-512.png
+├── og-image.png
+├── repo-social-preview.png
+├── manifest.webmanifest
+├── robots.txt
+├── sitemap.xml
+├── .nojekyll
+│
+├── assets/
+│   ├── styles.css
+│   ├── app.js
+│   ├── templates.js
+│   └── audio.js
+│
+├── scripts/
+│   └── verify.mjs
+│
+├── .github/workflows/
+│   └── deploy.yml
+│
+├── START-HERE.md
+├── README.md
+└── LICENSE
 ```
 
 ## Local Development
 
-별도 설치가 필요 없습니다. ES Module과 화면 캡처 API 때문에 `file://` 대신 로컬 HTTP 서버 사용을 권장합니다.
-
-Python이 있다면:
+별도 설치 과정이 없습니다.
 
 ```bash
-python3 -m http.server 8080
+python -m http.server 8080
 ```
 
-이후:
+브라우저에서:
 
 ```text
 http://localhost:8080/
 ```
 
-을 엽니다.
-
-## Verification
-
-정적 파일 검사는 Node.js가 있다면 다음 명령으로 실행할 수 있습니다.
+Node.js가 있다면 검증:
 
 ```bash
-node verify.mjs
+node scripts/verify.mjs
+node --check assets/app.js
+node --check assets/templates.js
+node --check assets/audio.js
 ```
-
-Node.js가 없어도 서비스 자체는 동작합니다.
 
 ## GitHub Pages Deployment
 
-처음이라면 `START-HERE.md`를 그대로 따라가면 됩니다.
-
-요약:
-
 1. 새 GitHub Repository 생성
-2. 이 폴더의 전체 파일을 `main`에 push
-3. `Settings → Pages → Source → GitHub Actions`
-4. Actions의 `Deploy MotionFrame to GitHub Pages` 완료 확인
-5. `https://USERNAME.github.io/REPOSITORY/` 접속
+2. 프로젝트 내용을 Repository 루트에 업로드
+3. `Settings → Pages`
+4. Source를 `GitHub Actions`로 선택
+5. `main`에 push
 
-Workflow는 Repository 이름을 이용해 실제 `SITE_URL`을 자동 계산하고, 배포 시 canonical / Open Graph / sitemap URL을 채웁니다.
+`.github/workflows/deploy.yml`이 자동 배포합니다.
+
+Repository가 `motionframe-studio`라면:
+
+```text
+https://USERNAME.github.io/motionframe-studio/
+```
+
+처럼 동작합니다.
+
+Actions에서 실제 Repository 이름으로 `__SITE_URL__`을 치환하므로 canonical, Open Graph, sitemap도 Pages 하위 경로를 반영합니다.
+
+## URL Capture / API Key Policy
+
+기본 캡처는 API key가 없는 Microlink 공개 endpoint를 사용합니다. 이는 작은 개인 프로젝트나 시험용으로 바로 사용할 수 있습니다.
+
+트래픽이 증가해 유료 API key가 필요해지면 key를 다음 위치에 넣지 마세요.
+
+```text
+❌ assets/app.js
+❌ index.html
+❌ Public Repository Secret 문자열
+```
+
+GitHub Pages JavaScript는 누구나 읽을 수 있기 때문입니다.
+
+대신 다음 구조를 권장합니다.
+
+```text
+GitHub Pages
+    ↓
+Small Serverless Proxy
+    ↓ secret header
+Microlink API
+```
+
+이 Proxy는 DB가 필요하지 않으며 URL 검증, rate limit, API key 보호만 담당하면 됩니다.
+
+## Limitations
+
+정적 GitHub Pages만으로는 다른 웹사이트의 로그인 세션을 가져오거나 임의 DOM을 직접 클릭할 수 없습니다. 따라서:
+
+- 공개 페이지: URL Capture
+- 로그인된 웹앱: Screen Recording
+- 데스크톱 프로그램: Screen Recording
+- 이미 녹화된 데모: Video Import
+
+로 입력 경로를 구분했습니다.
+
+브라우저별 MediaRecorder codec 지원이 다르므로 Chrome/Edge 최신 버전을 우선 권장합니다.
 
 ## Custom Domain
 
-GitHub Pages의 Custom domain을 설정한 뒤 Repository의:
+GitHub Pages의 `Settings → Pages → Custom domain`에서 도메인을 연결할 수 있습니다. 필요하면 Repository에 `CNAME` 파일을 추가하세요.
 
-`Settings → Secrets and variables → Actions → Variables`
-
-에서 `SITE_URL` 변수를 예를 들어 아래처럼 설정합니다.
-
-```text
-https://motion.example.com
-```
-
-그러면 다음 배포부터 canonical, Open Graph, sitemap URL에 해당 도메인이 사용됩니다.
-
-`CNAME` 파일은 실제 도메인이 정해졌을 때만 추가하세요.
-
-## Browser Compatibility
-
-가장 완전한 기능은 최신 Chrome 또는 Edge에서 사용할 수 있습니다.
-
-- 이미지 편집: 최신 주요 브라우저
-- 화면 캡처: `getDisplayMedia` 지원 및 사용자 권한 필요
-- WebM export: `Canvas.captureStream` + `MediaRecorder` + WebM 지원 필요
-- Safari는 WebM/MediaRecorder 조합에 따라 내보내기가 제한될 수 있습니다.
-
-앱은 지원 여부를 런타임에 확인하고 제한되는 기능을 안내합니다.
-
-## Security / Privacy
-
-- API key 없음
-- 외부 DB 없음
-- 업로드 파일을 서버로 전송하지 않음
-- 화면 캡처는 브라우저가 제공하는 사용자 선택/권한 UI를 반드시 거침
-- 캡처 스트림은 한 장의 프레임을 얻은 직후 종료
-
-## GitHub Pages에서 의도적으로 제외한 기능
-
-URL을 입력하면 서버가 해당 사이트를 자동 탐색하고 클릭하여 영상을 만들어주는 기능은 포함하지 않습니다. 정적 사이트가 임의 외부 페이지 DOM을 조작하거나 무권한으로 캡처하는 것은 브라우저 보안 모델상 불가능합니다.
-
-그 단계가 필요해질 때의 확장 구조는 다음이 적합합니다.
-
-```text
-GitHub Pages editor
-      ↓ job request
-Serverless API / Queue
-      ↓
-Playwright + Chromium worker
-      ↓
-Frame / video rendering
-      ↓
-Object storage
-```
-
-초기 MVP에서는 이 백엔드를 두지 않는 것이 더 단순하고 안전합니다.
-
-## Social Preview
-
-- `og-image.png`: 1200×630
-- `repo-social-preview.png`: 1280×640
-
-GitHub Repository의 `Settings → General → Social preview`에는 `repo-social-preview.png`를 업로드하면 됩니다.
+Custom domain을 사용하는 경우 OG/canonical URL을 custom domain으로 고정하려면 Actions의 `SITE_URL` 계산 부분을 수정하면 됩니다.
 
 ## License
 
-MIT License. `LICENSE`를 참고하세요.
+MIT License. 외부 사이트를 캡처하거나 영상으로 제작할 때는 해당 사이트/콘텐츠에 대한 사용 권한과 서비스 약관을 확인하세요.
